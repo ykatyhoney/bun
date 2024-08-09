@@ -609,6 +609,10 @@ pub const Version = extern struct {
         return this.patch == 0 and this.minor == 0 and this.major == 0;
     }
 
+    pub fn parseUTF8(slice: []const u8) ParseResult {
+        return parse(.{ .buf = slice, .slice = slice });
+    }
+
     pub fn cloneInto(this: Version, slice: []const u8, buf: *[]u8) Version {
         return .{
             .major = this.major,
@@ -2497,7 +2501,7 @@ pub const SemverObject = struct {
     pub fn order(
         globalThis: *JSC.JSGlobalObject,
         callFrame: *JSC.CallFrame,
-    ) callconv(.C) JSC.JSValue {
+    ) JSC.JSValue {
         var arena = std.heap.ArenaAllocator.init(bun.default_allocator);
         defer arena.deinit();
         var stack_fallback = std.heap.stackFallback(512, arena.allocator());
@@ -2549,7 +2553,7 @@ pub const SemverObject = struct {
     pub fn satisfies(
         globalThis: *JSC.JSGlobalObject,
         callFrame: *JSC.CallFrame,
-    ) callconv(.C) JSC.JSValue {
+    ) JSC.JSValue {
         var arena = std.heap.ArenaAllocator.init(bun.default_allocator);
         defer arena.deinit();
         var stack_fallback = std.heap.stackFallback(512, arena.allocator());

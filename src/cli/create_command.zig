@@ -50,8 +50,8 @@ pub var initialized_store = false;
 pub fn initializeStore() void {
     if (initialized_store) return;
     initialized_store = true;
-    js_ast.Expr.Data.Store.create(default_allocator);
-    js_ast.Stmt.Data.Store.create(default_allocator);
+    js_ast.Expr.Data.Store.create();
+    js_ast.Stmt.Data.Store.create();
 }
 
 const skip_dirs = &[_]bun.OSPathSlice{
@@ -241,7 +241,7 @@ pub const CreateCommand = struct {
         @setCold(true);
 
         Global.configureAllocator(.{ .long_running = false });
-        try HTTP.HTTPThread.init();
+        HTTP.HTTPThread.init();
 
         var create_options = try CreateOptions.parse(ctx);
         const positionals = create_options.positionals;
@@ -1436,7 +1436,7 @@ pub const CreateCommand = struct {
 
                 const package_json_writer = JSPrinter.NewFileWriter(package_json_file.?);
 
-                const written = JSPrinter.printJSON(@TypeOf(package_json_writer), package_json_writer, package_json_expr, &source) catch |err| {
+                const written = JSPrinter.printJSON(@TypeOf(package_json_writer), package_json_writer, package_json_expr, &source, .{}) catch |err| {
                     Output.prettyErrorln("package.json failed to write due to error {s}", .{@errorName(err)});
                     package_json_file = null;
                     break :process_package_json;
@@ -1811,7 +1811,6 @@ pub const Example = struct {
 
     const examples_url: string = "https://registry.npmjs.org/bun-examples-all/latest";
     var url: URL = undefined;
-    pub const timeout: u32 = 6000;
 
     var app_name_buf: [512]u8 = undefined;
     pub fn print(examples: []const Example, default_app_name: ?string) void {
@@ -1977,13 +1976,12 @@ pub const Example = struct {
             headers_buf,
             mutable,
             "",
-            60 * std.time.ns_per_min,
             http_proxy,
             null,
             HTTP.FetchRedirect.follow,
         );
         async_http.client.progress_node = progress;
-        async_http.client.reject_unauthorized = env_loader.getTLSRejectUnauthorized();
+        async_http.client.flags.reject_unauthorized = env_loader.getTLSRejectUnauthorized();
 
         const response = try async_http.sendSync(true);
 
@@ -1999,7 +1997,7 @@ pub const Example = struct {
         var is_expected_content_type = false;
         var content_type: string = "";
         for (response.headers) |header| {
-            if (strings.eqlInsensitive(header.name, "content-type")) {
+            if (strings.eqlCaseInsensitiveASCII(header.name, "content-type", true)) {
                 content_type = header.value;
 
                 if (strings.eqlComptime(header.value, "application/x-gzip")) {
@@ -2055,13 +2053,12 @@ pub const Example = struct {
             "",
             mutable,
             "",
-            60 * std.time.ns_per_min,
             http_proxy,
             null,
             HTTP.FetchRedirect.follow,
         );
         async_http.client.progress_node = progress;
-        async_http.client.reject_unauthorized = env_loader.getTLSRejectUnauthorized();
+        async_http.client.flags.reject_unauthorized = env_loader.getTLSRejectUnauthorized();
 
         var response = try async_http.sendSync(true);
 
@@ -2145,13 +2142,12 @@ pub const Example = struct {
             "",
             mutable,
             "",
-            60 * std.time.ns_per_min,
             http_proxy,
             null,
             HTTP.FetchRedirect.follow,
         );
         async_http.client.progress_node = progress;
-        async_http.client.reject_unauthorized = env_loader.getTLSRejectUnauthorized();
+        async_http.client.flags.reject_unauthorized = env_loader.getTLSRejectUnauthorized();
 
         refresher.maybeRefresh();
 
@@ -2188,12 +2184,11 @@ pub const Example = struct {
             "",
             mutable,
             "",
-            60 * std.time.ns_per_min,
             http_proxy,
             null,
             HTTP.FetchRedirect.follow,
         );
-        async_http.client.reject_unauthorized = env_loader.getTLSRejectUnauthorized();
+        async_http.client.flags.reject_unauthorized = env_loader.getTLSRejectUnauthorized();
 
         if (Output.enable_ansi_colors) {
             async_http.client.progress_node = progress_node;

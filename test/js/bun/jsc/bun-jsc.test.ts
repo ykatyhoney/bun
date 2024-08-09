@@ -25,6 +25,7 @@ import {
   drainMicrotasks,
   startRemoteDebugger,
   setTimeZone,
+  profile,
 } from "bun:jsc";
 
 describe("bun:jsc", () => {
@@ -73,7 +74,10 @@ describe("bun:jsc", () => {
     expect(setRandomSeed(2)).toBeUndefined();
   });
   it("isRope", () => {
-    expect(isRope("a" + 123 + "b")).toBe(true);
+    // https://twitter.com/bunjavascript/status/1806921203644571685
+    let y;
+    y = 123;
+    expect(isRope("a" + y + "b")).toBe(true);
     expect(isRope("abcdefgh")).toBe(false);
   });
   it("callerSourceOrigin", () => {
@@ -166,5 +170,19 @@ describe("bun:jsc", () => {
       serialize({ a: 1 });
     }
     Bun.gc(true);
+  });
+
+  it("profile async", async () => {
+    const { promise, resolve } = Promise.withResolvers();
+    const result = await profile(
+      async function hey(arg1: number) {
+        await Bun.sleep(10).then(() => resolve(arguments));
+        return arg1;
+      },
+      1,
+      2,
+    );
+    const input = await promise;
+    expect({ ...input }).toStrictEqual({ "0": 2 });
   });
 });

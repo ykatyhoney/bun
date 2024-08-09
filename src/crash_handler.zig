@@ -32,7 +32,7 @@ const debug = std.debug;
 /// This is useful for testing as a crash in here will not 'panicked during a panic'.
 pub const enable = true;
 
-/// Override with BUN_CRASH_REPORT_URL enviroment variable.
+/// Overridable with BUN_CRASH_REPORT_URL environment variable.
 const default_report_base_url = "https://bun.report";
 
 /// Only print the `Bun has crashed` message once. Once this is true, control
@@ -49,6 +49,17 @@ var panic_mutex = std.Thread.Mutex{};
 /// Counts how many times the panic handler is invoked by this thread.
 /// This is used to catch and handle panics triggered by the panic handler.
 threadlocal var panic_stage: usize = 0;
+
+/// This can be set by various parts of the codebase to indicate a broader
+/// action being taken. It is printed when a crash happens, which can help
+/// narrow down what the bug is. Example: "Crashed while parsing /path/to/file.js"
+///
+/// Some of these are enabled in release builds, which may encourage users to
+/// attach the affected files to crash report. Others, which may have low crash
+/// rate or only crash due to assertion failures, are debug-only. See `Action`.
+pub threadlocal var current_action: ?Action = null;
+
+const CPUFeatures = @import("./bun.js/bindings/CPUFeatures.zig").CPUFeatures;
 
 /// This structure and formatter must be kept in sync with `bun.report`'s decoder implementation.
 pub const CrashReason = union(enum) {
@@ -75,9 +86,9 @@ pub const CrashReason = union(enum) {
 
     out_of_memory,
 
-    pub fn format(self: CrashReason, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        switch (self) {
-            .panic => try writer.print("{s}", .{self.panic}),
+    pub fn format(reason: CrashReason, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        switch (reason) {
+            .panic => |message| try writer.print("{s}", .{message}),
             .@"unreachable" => try writer.writeAll("reached unreachable code"),
             .segmentation_fault => |addr| try writer.print("Segmentation fault at address 0x{X}", .{addr}),
             .illegal_instruction => |addr| try writer.print("Illegal instruction at address 0x{X}", .{addr}),
@@ -91,7 +102,64 @@ pub const CrashReason = union(enum) {
     }
 };
 
-/// This function is invoked when a crash happpens. A crash is classified in `CrashReason`.
+pub const Action = union(enum) {
+    parse: []const u8,
+    visit: []const u8,
+    print: []const u8,
+
+    /// bun.bundle_v2.LinkerContext.generateCompileResultForJSChunk
+    bundle_generate_chunk: if (bun.Environment.isDebug) struct {
+        context: *const anyopaque, // unfortunate dependency loop workaround
+        chunk: *const bun.bundle_v2.Chunk,
+        part_range: *const bun.bundle_v2.PartRange,
+
+        pub fn linkerContext(data: *const @This()) *const bun.bundle_v2.LinkerContext {
+            return @ptrCast(@alignCast(data.context));
+        }
+    } else void,
+
+    resolver: if (bun.Environment.isDebug) struct {
+        source_dir: []const u8,
+        import_path: []const u8,
+        kind: bun.ImportKind,
+    } else void,
+
+    pub fn format(act: Action, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        switch (act) {
+            .parse => |path| try writer.print("parsing {s}", .{path}),
+            .visit => |path| try writer.print("visiting {s}", .{path}),
+            .print => |path| try writer.print("printing {s}", .{path}),
+            .bundle_generate_chunk => |data| if (bun.Environment.isDebug) {
+                try writer.print(
+                    \\generating bundler chunk
+                    \\  chunk entry point: {s}
+                    \\  source: {s}
+                    \\  part range: {d}..{d}
+                ,
+                    .{
+                        data.linkerContext().graph.bundler_graph.input_files
+                            .items(.source)[data.chunk.entry_point.source_index]
+                            .path.text,
+                        data.linkerContext().graph.bundler_graph.input_files
+                            .items(.source)[data.part_range.source_index.get()]
+                            .path.text,
+                        data.part_range.part_index_begin,
+                        data.part_range.part_index_end,
+                    },
+                );
+            },
+            .resolver => |res| if (bun.Environment.isDebug) {
+                try writer.print("resolving {s} from {s} ({s})", .{
+                    res.import_path,
+                    res.source_dir,
+                    res.kind.label(),
+                });
+            },
+        }
+    }
+};
+
+/// This function is invoked when a crash happens. A crash is classified in `CrashReason`.
 pub fn crashHandler(
     reason: CrashReason,
     // TODO: if both of these are specified, what is supposed to happen?
@@ -99,10 +167,6 @@ pub fn crashHandler(
     begin_addr: ?usize,
 ) noreturn {
     @setCold(true);
-
-    // If a segfault happens while panicking, we want it to actually segfault, not trigger
-    // the handler.
-    resetSegfaultHandler();
 
     if (bun.Environment.isDebug)
         bun.Output.disableScopedDebugWriter();
@@ -125,11 +189,11 @@ pub fn crashHandler(
                 // is not configured correctly, so that would also mask the message.
                 //
                 // Output.errorWriter() is not used here because it may not be configured
-                // if the program crashes immediatly at startup.
+                // if the program crashes immediately at startup.
                 const writer = std.io.getStdErr().writer();
 
                 // The format of the panic trace is slightly different in debug
-                // builds Mainly, we demangle the backtrace immediately instead
+                // builds. Mainly, we demangle the backtrace immediately instead
                 // of using a trace string.
                 //
                 // To make the release-mode behavior easier to demo, debug mode
@@ -140,6 +204,9 @@ pub fn crashHandler(
                             break :check_flag false;
                         }
                     }
+                    // Act like release build when explicitly enabling reporting
+                    if (isReportingEnabled()) break :check_flag false;
+
                     break :check_flag true;
                 };
 
@@ -155,11 +222,10 @@ pub fn crashHandler(
                     }
                     writer.writeAll("oh no") catch std.posix.abort();
                     if (Output.enable_ansi_colors) {
-                        writer.writeAll(Output.prettyFmt("<r><d>: ", true)) catch std.posix.abort();
+                        writer.writeAll(Output.prettyFmt("<r><d>: multiple threads are crashing<r>\n", true)) catch std.posix.abort();
                     } else {
-                        writer.writeAll(Output.prettyFmt(": ", true)) catch std.posix.abort();
+                        writer.writeAll(Output.prettyFmt(": multiple threads are crashing\n", true)) catch std.posix.abort();
                     }
-                    writer.writeAll("multiple threads are crashing") catch std.posix.abort();
                 }
 
                 if (reason != .out_of_memory or debug_trace) {
@@ -196,6 +262,10 @@ pub fn crashHandler(
                     writer.print("{}\n", .{reason}) catch std.posix.abort();
                 }
 
+                if (current_action) |action| {
+                    writer.print("Crashed while {}\n", .{action}) catch std.posix.abort();
+                }
+
                 var addr_buf: [10]usize = undefined;
                 var trace_buf: std.builtin.StackTrace = undefined;
 
@@ -210,6 +280,8 @@ pub fn crashHandler(
                 };
 
                 if (debug_trace) {
+                    has_printed_message = true;
+
                     dumpStackTrace(trace.*);
 
                     trace_str_buf.writer().print("{}", .{TraceString{
@@ -270,14 +342,24 @@ pub fn crashHandler(
                     writer.writeAll("\n") catch std.posix.abort();
                 }
             }
+
             // Be aware that this function only lets one thread return from it.
             // This is important so that we do not try to run the following reload logic twice.
             waitForOtherThreadToFinishPanicking();
 
             report(trace_str_buf.slice());
 
+            // At this point, the crash handler has performed it's job. Reset the segfault handler
+            // so that a crash will actually crash. We need this because we want the process to
+            // exit with a signal, and allow tools to be able to gather core dumps.
+            //
+            // This is done so late (in comparison to the Zig Standard Library's panic handler)
+            // because if multiple threads segfault (more often the case on Windows), we don't
+            // want another thread to interrupt the crashing of the first one.
+            resetSegfaultHandler();
+
             if (bun.auto_reload_on_crash and
-                // Do not reload if the panic arised FROM the reload function.
+                // Do not reload if the panic arose FROM the reload function.
                 !bun.isProcessReloadInProgressOnAnotherThread())
             {
                 // attempt to prevent a double panic
@@ -288,13 +370,15 @@ pub fn crashHandler(
                 });
                 Output.flush();
 
-                comptime std.debug.assert(void == @TypeOf(bun.reloadProcess(bun.default_allocator, false, true)));
+                comptime bun.assert(void == @TypeOf(bun.reloadProcess(bun.default_allocator, false, true)));
                 bun.reloadProcess(bun.default_allocator, false, true);
             }
         },
         inline 1, 2 => |t| {
             if (t == 1) {
                 panic_stage = 2;
+
+                resetSegfaultHandler();
                 Output.flush();
             }
             panic_stage = 3;
@@ -308,6 +392,7 @@ pub fn crashHandler(
         },
         3 => {
             // Panicked while printing "Panicked during a panic."
+            panic_stage = 4;
         },
         else => {
             // Panicked or otherwise looped into the panic handler while trying to exit.
@@ -621,7 +706,7 @@ else
 const metadata_version_line = std.fmt.comptimePrint(
     "Bun {s}v{s} {s} {s}{s}\n",
     .{
-        if (bun.Environment.is_canary) "Canary " else "",
+        if (bun.Environment.isDebug) "Debug " else if (bun.Environment.is_canary) "Canary " else "",
         Global.package_json_version_with_sha,
         bun.Environment.os.displayString(),
         arch_display_string,
@@ -633,7 +718,7 @@ fn handleSegfaultPosix(sig: i32, info: *const std.posix.siginfo_t, _: ?*const an
     const addr = switch (bun.Environment.os) {
         .linux => @intFromPtr(info.fields.sigfault.addr),
         .mac => @intFromPtr(info.addr),
-        else => unreachable,
+        else => @compileError(unreachable),
     };
 
     crashHandler(
@@ -697,6 +782,8 @@ pub fn init() void {
 }
 
 pub fn resetSegfaultHandler() void {
+    if (!enable) return;
+
     if (bun.Environment.os == .windows) {
         if (windows_segfault_handle) |handle| {
             const rc = windows.kernel32.RemoveVectoredExceptionHandler(handle);
@@ -746,6 +833,7 @@ pub fn printMetadata(writer: anytype) !void {
     try writer.writeAll(metadata_version_line);
     {
         const platform = bun.Analytics.GenerateHeader.GeneratePlatform.forOS();
+        const cpu_features = CPUFeatures.get();
         if (bun.Environment.isLinux) {
             // TODO: musl
             const version = gnu_get_libc_version() orelse "";
@@ -757,7 +845,14 @@ pub fn printMetadata(writer: anytype) !void {
             }
         } else if (bun.Environment.isMac) {
             try writer.print("macOS v{s}\n", .{platform.version});
+        } else if (bun.Environment.isWindows) {
+            try writer.print("Windows v{s}\n", .{std.zig.system.windows.detectRuntimeVersion()});
         }
+
+        if (!cpu_features.isEmpty()) {
+            try writer.print("CPU: {}\n", .{cpu_features});
+        }
+
         try writer.print("Args: ", .{});
         var arg_chars_left: usize = if (bun.Environment.isDebug) 4096 else 196;
         for (bun.argv, 0..) |arg, i| {
@@ -791,10 +886,12 @@ pub fn printMetadata(writer: anytype) !void {
             &peak_commit,
             &page_faults,
         );
-        try writer.print("Elapsed: {d}ms | User: {d}ms | Sys: {d}ms\nRSS: {:<3.2} | Peak: {:<3.2} | Commit: {:<3.2} | Faults: {d}\n", .{
+        try writer.print("Elapsed: {d}ms | User: {d}ms | Sys: {d}ms\n", .{
             elapsed_msecs,
             user_msecs,
             system_msecs,
+        });
+        try writer.print("RSS: {:<3.2} | Peak: {:<3.2} | Commit: {:<3.2} | Faults: {d}\n", .{
             std.fmt.fmtIntSizeDec(current_rss),
             std.fmt.fmtIntSizeDec(peak_rss),
             std.fmt.fmtIntSizeDec(current_commit),
@@ -814,6 +911,22 @@ fn waitForOtherThreadToFinishPanicking() void {
         // and call abort()
         if (builtin.single_threaded) unreachable;
 
+        // Sleep forever without hammering the CPU
+        var futex = std.atomic.Value(u32).init(0);
+        while (true) std.Thread.Futex.wait(&futex, 0);
+        comptime unreachable;
+    }
+}
+
+/// This is to be called by any thread that is attempting to exit the process.
+/// If another thread is panicking, this will sleep this thread forever, under
+/// the assumption that the crash handler will terminate the program.
+///
+/// There have been situations in the past where a bundler thread starts
+/// panicking, but the main thread ends up marking a test as passing and then
+/// exiting with code zero before the crash handler can finish the crash.
+pub fn sleepForeverIfAnotherThreadIsCrashing() void {
+    if (panicking.load(.acquire) > 0) {
         // Sleep forever without hammering the CPU
         var futex = std.atomic.Value(u32).init(0);
         while (true) std.Thread.Futex.wait(&futex, 0);
@@ -884,7 +997,11 @@ const StackLine = struct {
                     .address = @intCast(addr - base_address),
 
                     .object = if (!std.mem.eql(u16, name, image_path)) name: {
-                        const basename = name[std.mem.lastIndexOfAny(u16, name, &[_]u16{ '\\', '/' }) orelse 0 ..];
+                        const basename = name[if (std.mem.lastIndexOfAny(u16, name, &[_]u16{ '\\', '/' })) |i|
+                            // skip the last slash
+                            i + 1
+                        else
+                            0..];
                         break :name bun.strings.convertUTF16toUTF8InBuffer(name_bytes, basename) catch null;
                     } else null,
                 };
@@ -1029,7 +1146,7 @@ const StackLine = struct {
 const TraceString = struct {
     trace: *const std.builtin.StackTrace,
     reason: CrashReason,
-    action: Action,
+    action: TraceString.Action,
 
     const Action = enum {
         /// Open a pre-filled GitHub issue with the expanded trace
@@ -1406,7 +1523,7 @@ pub fn dumpStackTrace(trace: std.builtin.StackTrace) void {
         },
         .linux => {
             // Linux doesnt seem to be able to decode it's own debug info.
-            // TODO(@paperdave): see if zig 0.12 fixes this
+            // TODO(@paperdave): see if zig 0.14 fixes this
         },
         else => {
             stdDumpStackTrace(trace);
@@ -1481,6 +1598,7 @@ pub const js_bindings = struct {
             .{ "panic", jsPanic },
             .{ "rootError", jsRootError },
             .{ "outOfMemory", jsOutOfMemory },
+            .{ "raiseIgnoringPanicHandler", jsRaiseIgnoringPanicHandler },
         }) |tuple| {
             const name = JSC.ZigString.static(tuple[0]);
             obj.put(global, name, JSC.createCallback(global, name, 1, tuple[1]));
@@ -1488,17 +1606,17 @@ pub const js_bindings = struct {
         return obj;
     }
 
-    pub fn jsGetMachOImageZeroOffset(_: *bun.JSC.JSGlobalObject, _: *bun.JSC.CallFrame) callconv(.C) bun.JSC.JSValue {
+    pub fn jsGetMachOImageZeroOffset(_: *bun.JSC.JSGlobalObject, _: *bun.JSC.CallFrame) JSValue {
         if (!bun.Environment.isMac) return .undefined;
 
         const header = std.c._dyld_get_image_header(0) orelse return .undefined;
         const base_address = @intFromPtr(header);
         const vmaddr_slide = std.c._dyld_get_image_vmaddr_slide(0);
 
-        return bun.JSC.JSValue.jsNumber(base_address - vmaddr_slide);
+        return JSValue.jsNumber(base_address - vmaddr_slide);
     }
 
-    pub fn jsSegfault(_: *JSC.JSGlobalObject, _: *JSC.CallFrame) callconv(.C) JSC.JSValue {
+    pub fn jsSegfault(_: *JSC.JSGlobalObject, _: *JSC.CallFrame) JSC.JSValue {
         @setRuntimeSafety(false);
         const ptr: [*]align(1) u64 = @ptrFromInt(0xDEADBEEF);
         ptr[0] = 0xDEADBEEF;
@@ -1506,29 +1624,33 @@ pub const js_bindings = struct {
         return .undefined;
     }
 
-    pub fn jsPanic(_: *JSC.JSGlobalObject, _: *JSC.CallFrame) callconv(.C) JSC.JSValue {
+    pub fn jsPanic(_: *JSC.JSGlobalObject, _: *JSC.CallFrame) JSC.JSValue {
         bun.crash_handler.panicImpl("invoked crashByPanic() handler", null, null);
     }
 
-    pub fn jsRootError(_: *JSC.JSGlobalObject, _: *JSC.CallFrame) callconv(.C) JSC.JSValue {
+    pub fn jsRootError(_: *JSC.JSGlobalObject, _: *JSC.CallFrame) JSC.JSValue {
         bun.crash_handler.handleRootError(error.Test, null);
     }
 
-    pub fn jsOutOfMemory(_: *JSC.JSGlobalObject, _: *JSC.CallFrame) callconv(.C) JSC.JSValue {
+    pub fn jsOutOfMemory(_: *JSC.JSGlobalObject, _: *JSC.CallFrame) JSC.JSValue {
         bun.outOfMemory();
     }
 
-    pub fn jsGetFeaturesAsVLQ(global: *JSC.JSGlobalObject, _: *JSC.CallFrame) callconv(.C) JSC.JSValue {
+    pub fn jsRaiseIgnoringPanicHandler(_: *JSC.JSGlobalObject, _: *JSC.CallFrame) JSC.JSValue {
+        bun.Global.raiseIgnoringPanicHandler(.SIGSEGV);
+    }
+
+    pub fn jsGetFeaturesAsVLQ(global: *JSC.JSGlobalObject, _: *JSC.CallFrame) JSC.JSValue {
         const bits = bun.Analytics.packedFeatures();
         var buf = std.BoundedArray(u8, 16){};
         writeU64AsTwoVLQs(buf.writer(), @bitCast(bits)) catch {
-            // there is definetly enough space in the bounded array
+            // there is definitely enough space in the bounded array
             unreachable;
         };
         return bun.String.createLatin1(buf.slice()).toJS(global);
     }
 
-    pub fn jsGetFeatureData(global: *JSC.JSGlobalObject, _: *JSC.CallFrame) callconv(.C) JSC.JSValue {
+    pub fn jsGetFeatureData(global: *JSC.JSGlobalObject, _: *JSC.CallFrame) JSC.JSValue {
         const obj = JSValue.createEmptyObject(global, 5);
         const list = bun.Analytics.packed_features_list;
         const array = JSValue.createEmptyArray(global, list.len);
@@ -1539,7 +1661,7 @@ pub const js_bindings = struct {
         obj.put(global, JSC.ZigString.static("version"), bun.String.init(Global.package_json_version).toJS(global));
         obj.put(global, JSC.ZigString.static("is_canary"), JSC.JSValue.jsBoolean(bun.Environment.is_canary));
         obj.put(global, JSC.ZigString.static("revision"), bun.String.init(bun.Environment.git_sha).toJS(global));
-        obj.put(global, JSC.ZigString.static("generated_at"), bun.JSC.JSValue.jsNumberFromInt64(@max(std.time.milliTimestamp(), 0)));
+        obj.put(global, JSC.ZigString.static("generated_at"), JSValue.jsNumberFromInt64(@max(std.time.milliTimestamp(), 0)));
         return obj;
     }
 };

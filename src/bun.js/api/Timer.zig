@@ -550,7 +550,7 @@ pub const TimerObject = struct {
         return .{ timer, timer_js };
     }
 
-    pub fn doRef(this: *TimerObject, _: *JSC.JSGlobalObject, callframe: *JSC.CallFrame) callconv(.C) JSValue {
+    pub fn doRef(this: *TimerObject, _: *JSC.JSGlobalObject, callframe: *JSC.CallFrame) JSValue {
         const this_value = callframe.this();
         this_value.ensureStillAlive();
 
@@ -564,7 +564,7 @@ pub const TimerObject = struct {
         return this_value;
     }
 
-    pub fn doRefresh(this: *TimerObject, globalObject: *JSC.JSGlobalObject, callframe: *JSC.CallFrame) callconv(.C) JSValue {
+    pub fn doRefresh(this: *TimerObject, globalObject: *JSC.JSGlobalObject, callframe: *JSC.CallFrame) JSValue {
         const this_value = callframe.this();
 
         // setImmediate does not support refreshing and we do not support refreshing after cleanup
@@ -578,7 +578,7 @@ pub const TimerObject = struct {
         return this_value;
     }
 
-    pub fn doUnref(this: *TimerObject, _: *JSC.JSGlobalObject, callframe: *JSC.CallFrame) callconv(.C) JSValue {
+    pub fn doUnref(this: *TimerObject, _: *JSC.JSGlobalObject, callframe: *JSC.CallFrame) JSValue {
         const this_value = callframe.this();
         this_value.ensureStillAlive();
 
@@ -643,10 +643,10 @@ pub const TimerObject = struct {
         }
     }
 
-    pub fn hasRef(this: *TimerObject, _: *JSC.JSGlobalObject, _: *JSC.CallFrame) callconv(.C) JSValue {
+    pub fn hasRef(this: *TimerObject, _: *JSC.JSGlobalObject, _: *JSC.CallFrame) JSValue {
         return JSValue.jsBoolean(this.is_keeping_event_loop_alive);
     }
-    pub fn toPrimitive(this: *TimerObject, _: *JSC.JSGlobalObject, _: *JSC.CallFrame) callconv(.C) JSValue {
+    pub fn toPrimitive(this: *TimerObject, _: *JSC.JSGlobalObject, _: *JSC.CallFrame) JSValue {
         if (!this.has_accessed_primitive) {
             this.has_accessed_primitive = true;
             const vm = VirtualMachine.get();
@@ -655,7 +655,7 @@ pub const TimerObject = struct {
         return JSValue.jsNumber(this.id);
     }
 
-    pub fn finalize(this: *TimerObject) callconv(.C) void {
+    pub fn finalize(this: *TimerObject) void {
         this.strong_this.deinit();
         this.deref();
     }
@@ -669,7 +669,19 @@ pub const TimerObject = struct {
         }
 
         if (this.has_accessed_primitive) {
-            _ = vm.timer.maps.get(this.kind).orderedRemove(this.id);
+            const map = vm.timer.maps.get(this.kind);
+            if (map.orderedRemove(this.id)) {
+                // If this array gets large, let's shrink it down
+                // Array keys are i32
+                // Values are 1 ptr
+                // Therefore, 12 bytes per entry
+                // So if you created 21,000 timers and accessed them by ID, you'd be using 252KB
+                const allocated_bytes = map.capacity() * @sizeOf(TimeoutMap.Data);
+                const used_bytes = map.count() * @sizeOf(TimeoutMap.Data);
+                if (allocated_bytes - used_bytes > 256 * 1024) {
+                    map.shrinkAndFree(bun.default_allocator, map.count() + 8);
+                }
+            }
         }
 
         this.setEnableKeepingEventLoopAlive(vm, false);

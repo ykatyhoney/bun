@@ -26,9 +26,9 @@ const log = bun.Output.scoped(.StatWatcher, false);
 
 fn statToJSStats(globalThis: *JSC.JSGlobalObject, stats: bun.Stat, bigint: bool) JSC.JSValue {
     if (bigint) {
-        return bun.new(StatsBig, StatsBig.init(stats)).toJS(globalThis);
+        return StatsBig.new(StatsBig.init(stats)).toJS(globalThis);
     } else {
-        return bun.new(StatsSmall, StatsSmall.init(stats)).toJS(globalThis);
+        return StatsSmall.new(StatsSmall.init(stats)).toJS(globalThis);
     }
 }
 
@@ -305,27 +305,27 @@ pub const StatWatcher = struct {
             if (obj.js_this != .zero) {
                 return obj.js_this;
             }
-            return JSC.JSValue.jsUndefined();
+            return .undefined;
         }
     };
 
-    pub fn doRef(this: *StatWatcher, _: *JSC.JSGlobalObject, _: *JSC.CallFrame) callconv(.C) JSC.JSValue {
+    pub fn doRef(this: *StatWatcher, _: *JSC.JSGlobalObject, _: *JSC.CallFrame) JSC.JSValue {
         if (!this.closed and !this.persistent) {
             this.persistent = true;
             this.poll_ref.ref(this.ctx);
         }
-        return JSC.JSValue.jsUndefined();
+        return .undefined;
     }
 
-    pub fn doUnref(this: *StatWatcher, _: *JSC.JSGlobalObject, _: *JSC.CallFrame) callconv(.C) JSC.JSValue {
+    pub fn doUnref(this: *StatWatcher, _: *JSC.JSGlobalObject, _: *JSC.CallFrame) JSC.JSValue {
         if (this.persistent) {
             this.persistent = false;
             this.poll_ref.unref(this.ctx);
         }
-        return JSC.JSValue.jsUndefined();
+        return .undefined;
     }
 
-    pub fn hasPendingActivity(this: *StatWatcher) callconv(.C) bool {
+    pub fn hasPendingActivity(this: *StatWatcher) bool {
         @fence(.acquire);
 
         return this.used_by_scheduler_thread.load(.acquire);
@@ -343,13 +343,13 @@ pub const StatWatcher = struct {
         this.last_jsvalue.clear();
     }
 
-    pub fn doClose(this: *StatWatcher, _: *JSC.JSGlobalObject, _: *JSC.CallFrame) callconv(.C) JSC.JSValue {
+    pub fn doClose(this: *StatWatcher, _: *JSC.JSGlobalObject, _: *JSC.CallFrame) JSC.JSValue {
         this.close();
-        return JSC.JSValue.jsUndefined();
+        return .undefined;
     }
 
     /// If the scheduler is not using this, free instantly, otherwise mark for being freed.
-    pub fn finalize(this: *StatWatcher) callconv(.C) void {
+    pub fn finalize(this: *StatWatcher) void {
         log("Finalize\n", .{});
         this.deinit();
     }
@@ -417,6 +417,7 @@ pub const StatWatcher = struct {
 
         const result = StatWatcher.listenerGetCached(this.js_this).?.call(
             this.globalThis,
+            .undefined,
             &[2]JSC.JSValue{
                 jsvalue,
                 jsvalue,
@@ -454,6 +455,7 @@ pub const StatWatcher = struct {
 
         const result = StatWatcher.listenerGetCached(this.js_this).?.call(
             this.globalThis,
+            .undefined,
             &[2]JSC.JSValue{
                 current_jsvalue,
                 prev_jsvalue,

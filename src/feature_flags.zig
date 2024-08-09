@@ -46,8 +46,6 @@ pub const allow_json_single_quotes = true;
 
 pub const react_specific_warnings = true;
 
-pub const log_allocations = false;
-
 pub const CSSInJSImportBehavior = enum {
     // When you import a .css file and you reference the import in JavaScript
     // Just return whatever the property key they referenced was
@@ -157,8 +155,7 @@ pub const export_star_redirect = false;
 
 pub const streaming_file_uploads_for_http_client = true;
 
-// TODO: fix concurrent transpiler on Windows
-pub const concurrent_transpiler = !env.isWindows;
+pub const concurrent_transpiler = true;
 
 // https://github.com/oven-sh/bun/issues/5426#issuecomment-1813865316
 pub const disable_auto_js_to_ts_in_node_modules = true;
@@ -181,3 +178,19 @@ pub const breaking_changes_1_2 = false;
 // order than via Bun.file.writer() so we turn it off until there's a unified,
 // buffered writer abstraction shared throughout Bun
 pub const nonblocking_stdout_and_stderr_on_posix = false;
+
+pub const postgresql = env.is_canary or env.isDebug;
+
+// TODO: fix Windows-only test failures in fetch-preconnect.test.ts
+pub const is_fetch_preconnect_supported = env.isPosix;
+
+pub const libdeflate_supported = env.isNative;
+
+// Mostly exists as a way to turn it off later, if necessary.
+pub fn isLibdeflateEnabled() bool {
+    if (!libdeflate_supported) {
+        return false;
+    }
+
+    return !bun.getRuntimeFeatureFlag("BUN_FEATURE_FLAG_NO_LIBDEFLATE");
+}

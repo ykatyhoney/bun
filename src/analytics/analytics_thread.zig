@@ -101,7 +101,6 @@ pub const Features = struct {
     pub var loaders: usize = 0;
     pub var lockfile_migration_from_package_lock: usize = 0;
     pub var macros: usize = 0;
-    pub var origin: usize = 0;
     pub var shell: usize = 0;
     pub var spawn: usize = 0;
     pub var standalone_shell: usize = 0;
@@ -110,7 +109,9 @@ pub const Features = struct {
     pub var tsconfig: usize = 0;
     pub var virtual_modules: usize = 0;
     pub var WebSocket: usize = 0;
-
+    pub var no_avx: usize = 0;
+    pub var no_avx2: usize = 0;
+    pub var binlinks: usize = 0;
     pub var builtin_modules = std.enums.EnumSet(bun.JSC.HardcodedModule).initEmpty();
 
     pub fn formatter() Formatter {
@@ -301,6 +302,23 @@ pub const GenerateHeader = struct {
         pub fn forOS() Analytics.Platform {
             run_once.call();
             return platform_;
+        }
+
+        // On macOS 13, tests that use sendmsg_x or recvmsg_x hang.
+        var use_msgx_on_macos_14_or_later: bool = undefined;
+        var detectUseMsgXOnMacOS14OrLater_once = std.once(detectUseMsgXOnMacOS14OrLater);
+        fn detectUseMsgXOnMacOS14OrLater() void {
+            const version = Semver.Version.parseUTF8(forOS().version);
+            use_msgx_on_macos_14_or_later = version.valid and version.version.max().major >= 14;
+        }
+        pub export fn Bun__doesMacOSVersionSupportSendRecvMsgX() i32 {
+            if (comptime !Environment.isMac) {
+                // this should not be used on non-mac platforms.
+                return 0;
+            }
+
+            detectUseMsgXOnMacOS14OrLater_once.call();
+            return @intFromBool(use_msgx_on_macos_14_or_later);
         }
 
         pub fn kernelVersion() Semver.Version {

@@ -39,6 +39,7 @@ const E = C.E;
 const uid_t = if (Environment.isPosix) std.posix.uid_t else bun.windows.libuv.uv_uid_t;
 const gid_t = if (Environment.isPosix) std.posix.gid_t else bun.windows.libuv.uv_gid_t;
 const ReadPosition = i64;
+const StringOrBuffer = JSC.Node.StringOrBuffer;
 
 const Stats = JSC.Node.Stats;
 const Dirent = JSC.Node.Dirent;
@@ -54,7 +55,6 @@ else
     // TODO:
     0;
 
-const StringOrBuffer = JSC.Node.StringOrBuffer;
 const ArrayBuffer = JSC.MarkedArrayBuffer;
 const Buffer = JSC.Buffer;
 const FileSystemFlags = JSC.Node.FileSystemFlags;
@@ -189,7 +189,7 @@ pub const Async = struct {
                     std.mem.doNotOptimizeAway(&node_fs);
                 }
 
-                this.globalObject.bunVMConcurrently().eventLoop().enqueueTaskConcurrent(JSC.ConcurrentTask.create(JSC.Task.init(this)));
+                this.globalObject.bunVMConcurrently().eventLoop().enqueueTaskConcurrent(JSC.ConcurrentTask.createFrom(this));
             }
 
             pub fn runFromJSThread(this: *Task) void {
@@ -757,7 +757,7 @@ pub const AsyncReaddirRecursiveTask = struct {
     root_path: PathString = PathString.empty,
 
     pending_err: ?Syscall.Error = null,
-    pending_err_mutex: bun.Lock = bun.Lock.init(),
+    pending_err_mutex: bun.Lock = .{},
 
     pub usingnamespace bun.New(@This());
 
@@ -1444,6 +1444,14 @@ pub const Arguments = struct {
                 };
 
                 arguments.eat();
+                if (!uid_value.isNumber()) {
+                    ctx.throwValue(ctx.ERR_INVALID_ARG_TYPE_static(
+                        JSC.ZigString.static("uid"),
+                        JSC.ZigString.static("number"),
+                        uid_value,
+                    ));
+                    return null;
+                }
                 break :brk @as(uid_t, @intCast(uid_value.toInt32()));
             };
 
@@ -1461,6 +1469,14 @@ pub const Arguments = struct {
                 };
 
                 arguments.eat();
+                if (!gid_value.isNumber()) {
+                    ctx.throwValue(ctx.ERR_INVALID_ARG_TYPE_static(
+                        JSC.ZigString.static("gid"),
+                        JSC.ZigString.static("number"),
+                        gid_value,
+                    ));
+                    return null;
+                }
                 break :brk @as(gid_t, @intCast(gid_value.toInt32()));
             };
 
@@ -2304,7 +2320,7 @@ pub const Arguments = struct {
     };
 
     const MkdirTemp = struct {
-        prefix: JSC.Node.StringOrBuffer = .{ .buffer = .{ .buffer = JSC.ArrayBuffer.empty } },
+        prefix: StringOrBuffer = .{ .buffer = .{ .buffer = JSC.ArrayBuffer.empty } },
         encoding: Encoding = Encoding.utf8,
 
         pub fn deinit(this: MkdirTemp) void {
@@ -2322,7 +2338,7 @@ pub const Arguments = struct {
         pub fn fromJS(ctx: JSC.C.JSContextRef, arguments: *ArgumentsSlice, exception: JSC.C.ExceptionRef) ?MkdirTemp {
             const prefix_value = arguments.next() orelse return MkdirTemp{};
 
-            const prefix = JSC.Node.StringOrBuffer.fromJS(ctx, bun.default_allocator, prefix_value) orelse {
+            const prefix = StringOrBuffer.fromJS(ctx, bun.default_allocator, prefix_value) orelse {
                 if (exception.* == null) {
                     JSC.throwInvalidArguments(
                         "prefix must be a string or TypedArray",
@@ -2680,7 +2696,7 @@ pub const Arguments = struct {
     ///
     pub const Write = struct {
         fd: FileDescriptor,
-        buffer: JSC.Node.StringOrBuffer,
+        buffer: StringOrBuffer,
         // buffer_val: JSC.JSValue = JSC.JSValue.zero,
         offset: u64 = 0,
         length: u64 = std.math.maxInt(u64),
@@ -2944,6 +2960,7 @@ pub const Arguments = struct {
 
         offset: JSC.WebCore.Blob.SizeType = 0,
         max_size: ?JSC.WebCore.Blob.SizeType = null,
+        limit_size_for_javascript: bool = false,
 
         flag: FileSystemFlags = FileSystemFlags.r,
 
@@ -3029,6 +3046,7 @@ pub const Arguments = struct {
                 .path = path,
                 .encoding = encoding,
                 .flag = flag,
+                .limit_size_for_javascript = true,
             };
         }
     };
@@ -4019,14 +4037,14 @@ const Return = struct {
             }
         }
     };
-    pub const ReadFile = JSC.Node.StringOrBuffer;
+    pub const ReadFile = StringOrBuffer;
     pub const ReadFileWithOptions = union(enum) {
         string: string,
         buffer: JSC.Node.Buffer,
         null_terminated: [:0]const u8,
     };
-    pub const Readlink = JSC.Node.StringOrBuffer;
-    pub const Realpath = JSC.Node.StringOrBuffer;
+    pub const Readlink = StringOrBuffer;
+    pub const Realpath = StringOrBuffer;
     pub const RealpathNative = Realpath;
     pub const Rename = void;
     pub const Rmdir = void;
@@ -5044,7 +5062,10 @@ pub const NodeFS = struct {
         const dir = fd.asDir();
         const is_u16 = comptime Environment.isWindows and (ExpectedType == bun.String or ExpectedType == Dirent);
 
-        var dirent_path: ?bun.String = null;
+        var dirent_path: bun.String = bun.String.dead;
+        defer {
+            dirent_path.deref();
+        }
 
         var iterator = DirIterator.iterate(dir, comptime if (is_u16) .u16 else .u8);
         var entry = iterator.next();
@@ -5075,7 +5096,7 @@ pub const NodeFS = struct {
             .result => |ent| ent,
         }) |current| : (entry = iterator.next()) {
             if (ExpectedType == Dirent) {
-                if (dirent_path == null) {
+                if (dirent_path.isEmpty()) {
                     dirent_path = bun.String.createUTF8(basename);
                 }
             }
@@ -5083,10 +5104,10 @@ pub const NodeFS = struct {
                 const utf8_name = current.name.slice();
                 switch (ExpectedType) {
                     Dirent => {
-                        dirent_path.?.ref();
+                        dirent_path.ref();
                         entries.append(.{
                             .name = bun.String.createUTF8(utf8_name),
-                            .path = dirent_path.?,
+                            .path = dirent_path,
                             .kind = current.kind,
                         }) catch bun.outOfMemory();
                     },
@@ -5102,10 +5123,10 @@ pub const NodeFS = struct {
                 const utf16_name = current.name.slice();
                 switch (ExpectedType) {
                     Dirent => {
-                        dirent_path.?.ref();
+                        dirent_path.ref();
                         entries.append(.{
                             .name = bun.String.createUTF16(utf16_name),
-                            .path = dirent_path.?,
+                            .path = dirent_path,
                             .kind = current.kind,
                         }) catch bun.outOfMemory();
                     },
@@ -5115,9 +5136,6 @@ pub const NodeFS = struct {
                     else => @compileError("unreachable"),
                 }
             }
-        }
-        if (dirent_path) |*p| {
-            p.deref();
         }
 
         return Maybe(void).success;
@@ -5177,7 +5195,10 @@ pub const NodeFS = struct {
 
         var iterator = DirIterator.iterate(fd.asDir(), .u8);
         var entry = iterator.next();
-        var dirent_path_prev: ?bun.String = null;
+        var dirent_path_prev: bun.String = bun.String.empty;
+        defer {
+            dirent_path_prev.deref();
+        }
 
         while (switch (entry) {
             .err => |err| {
@@ -5231,13 +5252,15 @@ pub const NodeFS = struct {
             switch (comptime ExpectedType) {
                 Dirent => {
                     const path_u8 = bun.path.dirname(bun.path.join(&[_]string{ root_basename, name_to_copy }, .auto), .auto);
-                    if (dirent_path_prev == null or bun.strings.eql(dirent_path_prev.?.byteSlice(), path_u8)) {
+                    if (dirent_path_prev.isEmpty() or !bun.strings.eql(dirent_path_prev.byteSlice(), path_u8)) {
+                        dirent_path_prev.deref();
                         dirent_path_prev = bun.String.createUTF8(path_u8);
                     }
-                    dirent_path_prev.?.ref();
+                    dirent_path_prev.ref();
+
                     entries.append(.{
                         .name = bun.String.createUTF8(utf8_name),
-                        .path = dirent_path_prev.?,
+                        .path = dirent_path_prev,
                         .kind = current.kind,
                     }) catch bun.outOfMemory();
                 },
@@ -5249,9 +5272,6 @@ pub const NodeFS = struct {
                 },
                 else => bun.outOfMemory(),
             }
-        }
-        if (dirent_path_prev) |*p| {
-            p.deref();
         }
 
         return Maybe(void).success;
@@ -5330,7 +5350,10 @@ pub const NodeFS = struct {
 
             var iterator = DirIterator.iterate(fd.asDir(), .u8);
             var entry = iterator.next();
-            var dirent_path_prev: ?bun.String = null;
+            var dirent_path_prev: bun.String = bun.String.dead;
+            defer {
+                dirent_path_prev.deref();
+            }
 
             while (switch (entry) {
                 .err => |err| {
@@ -5370,13 +5393,14 @@ pub const NodeFS = struct {
                 switch (comptime ExpectedType) {
                     Dirent => {
                         const path_u8 = bun.path.dirname(bun.path.join(&[_]string{ root_basename, name_to_copy }, .auto), .auto);
-                        if (dirent_path_prev == null or bun.strings.eql(dirent_path_prev.?.byteSlice(), path_u8)) {
+                        if (dirent_path_prev.isEmpty() or !bun.strings.eql(dirent_path_prev.byteSlice(), path_u8)) {
+                            dirent_path_prev.deref();
                             dirent_path_prev = bun.String.createUTF8(path_u8);
                         }
-                        dirent_path_prev.?.ref();
+                        dirent_path_prev.ref();
                         entries.append(.{
                             .name = bun.String.createUTF8(utf8_name),
-                            .path = dirent_path_prev.?,
+                            .path = dirent_path_prev,
                             .kind = current.kind,
                         }) catch bun.outOfMemory();
                     },
@@ -5389,12 +5413,32 @@ pub const NodeFS = struct {
                     else => @compileError("Impossible"),
                 }
             }
-            if (dirent_path_prev) |*p| {
-                p.deref();
-            }
         }
 
         return Maybe(void).success;
+    }
+
+    fn shouldThrowOutOfMemoryEarlyForJavaScript(encoding: Encoding, size: usize, syscall: Syscall.Tag) ?Syscall.Error {
+        // Strings & typed arrays max out at 4.7 GB.
+        // But, it's **string length**
+        // So you can load an 8 GB hex string, for example, it should be fine.
+        const adjusted_size = switch (encoding) {
+            .utf16le, .ucs2, .utf8 => size / 4 -| 1,
+            .hex => size / 2 -| 1,
+            .base64, .base64url => size / 3 -| 1,
+            .ascii, .latin1, .buffer => size,
+        };
+
+        if (
+        // Typed arrays in JavaScript are limited to 4.7 GB.
+        adjusted_size > JSC.synthetic_allocation_limit or
+            // If they do not have enough memory to open the file and they're on Linux, let's throw an error instead of dealing with the OOM killer.
+            (Environment.isLinux and size >= bun.getTotalMemorySize()))
+        {
+            return Syscall.Error.fromCode(.NOMEM, syscall);
+        }
+
+        return null;
     }
 
     fn _readdir(
@@ -5486,7 +5530,15 @@ pub const NodeFS = struct {
                         .buffer = ret.result.buffer,
                     },
                 },
-                .string => .{ .result = .{ .string = bun.SliceWithUnderlyingString.transcodeFromOwnedSlice(@constCast(ret.result.string), args.encoding) } },
+                .string => brk: {
+                    const str = bun.SliceWithUnderlyingString.transcodeFromOwnedSlice(@constCast(ret.result.string), args.encoding);
+
+                    if (str.underlying.tag == .Dead and str.utf8.len == 0) {
+                        return .{ .err = Syscall.Error.fromCode(.NOMEM, .read).withPathLike(args.path) };
+                    }
+
+                    break :brk .{ .result = .{ .string = str } };
+                },
                 else => unreachable,
             },
         };
@@ -5581,8 +5633,21 @@ pub const NodeFS = struct {
             ),
         ) + @intFromBool(comptime string_type == .null_terminated);
 
+        if (args.limit_size_for_javascript and
+            // assume that anything more than 40 bits is not trustworthy.
+            (size < std.math.maxInt(u40)))
+        {
+            if (shouldThrowOutOfMemoryEarlyForJavaScript(args.encoding, size, .read)) |err| {
+                return .{ .err = err.withPathLike(args.path) };
+            }
+        }
+
+        var did_succeed = false;
         var buf = std.ArrayList(u8).init(bun.default_allocator);
-        buf.ensureTotalCapacityPrecise(size + 16) catch unreachable;
+        defer if (!did_succeed) buf.clearAndFree();
+        buf.ensureTotalCapacityPrecise(size + 16) catch return .{
+            .err = Syscall.Error.fromCode(.NOMEM, .read).withPathLike(args.path),
+        };
         buf.expandToCapacity();
         var total: usize = 0;
 
@@ -5593,14 +5658,26 @@ pub const NodeFS = struct {
                 },
                 .result => |amt| {
                     total += amt;
+
+                    if (args.limit_size_for_javascript) {
+                        if (shouldThrowOutOfMemoryEarlyForJavaScript(args.encoding, total, .read)) |err| {
+                            return .{
+                                .err = err.withPathLike(args.path),
+                            };
+                        }
+                    }
+
                     // There are cases where stat()'s size is wrong or out of date
                     if (total > size and amt != 0) {
-                        buf.ensureUnusedCapacity(8192) catch unreachable;
-                        buf.expandToCapacity();
+                        buf.items.len = total;
+                        buf.ensureUnusedCapacity(8192) catch {
+                            return .{ .err = Syscall.Error.fromCode(.NOMEM, .read).withPathLike(args.path) };
+                        };
                         continue;
                     }
 
                     if (amt == 0) {
+                        did_succeed = true;
                         break;
                     }
                 },
@@ -5613,14 +5690,23 @@ pub const NodeFS = struct {
                     },
                     .result => |amt| {
                         total += amt;
-                        // There are cases where stat()'s size is wrong or out of date
+
+                        if (args.limit_size_for_javascript) {
+                            if (shouldThrowOutOfMemoryEarlyForJavaScript(args.encoding, total, .read)) |err| {
+                                return .{ .err = err.withPathLike(args.path) };
+                            }
+                        }
+
                         if (total > size and amt != 0) {
-                            buf.ensureUnusedCapacity(8192) catch unreachable;
-                            buf.expandToCapacity();
+                            buf.items.len = total;
+                            buf.ensureUnusedCapacity(8192) catch {
+                                return .{ .err = Syscall.Error.fromCode(.NOMEM, .read).withPathLike(args.path) };
+                            };
                             continue;
                         }
 
                         if (amt == 0) {
+                            did_succeed = true;
                             break;
                         }
                     },
@@ -5630,7 +5716,7 @@ pub const NodeFS = struct {
 
         buf.items.len = if (comptime string_type == .null_terminated) total + 1 else total;
         if (total == 0) {
-            buf.deinit();
+            buf.clearAndFree();
             return switch (args.encoding) {
                 .buffer => .{
                     .result = .{
@@ -5671,7 +5757,10 @@ pub const NodeFS = struct {
                 } else {
                     break :brk .{
                         .result = .{
-                            .null_terminated = buf.toOwnedSliceSentinel(0) catch unreachable,
+                            .null_terminated = buf.toOwnedSliceSentinel(0) catch return .{
+                                // Since we are expecting a null-terminated string, we can't just ignore the resize failure.
+                                .err = Syscall.Error.fromCode(.NOMEM, .read).withPathLike(args.path),
+                            },
                         },
                     };
                 }
@@ -5755,26 +5844,15 @@ pub const NodeFS = struct {
             }
         }
 
-        if (Environment.isWindows) {
-            if (args.flag == .a) {
-                return Maybe(Return.WriteFile).success;
-            }
-
-            const rc = std.os.windows.kernel32.SetEndOfFile(fd.cast());
-            if (rc == 0) {
-                return .{
-                    .err = Syscall.Error{
-                        .errno = @intFromEnum(std.os.windows.kernel32.GetLastError()),
-                        .syscall = .SetEndOfFile,
-                        .fd = fd,
-                    },
-                };
-            }
-        } else {
-            // https://github.com/oven-sh/bun/issues/2931
-            // https://github.com/oven-sh/bun/issues/10222
-            // only truncate if we're not appending and writing to a path
-            if ((@intFromEnum(args.flag) & bun.O.APPEND) == 0 and args.file != .fd) {
+        // https://github.com/oven-sh/bun/issues/2931
+        // https://github.com/oven-sh/bun/issues/10222
+        // Only truncate if we're not appending and writing to a path
+        if ((@intFromEnum(args.flag) & bun.O.APPEND) == 0 and args.file != .fd) {
+            // If this errors, we silently ignore it.
+            // Not all files are seekable (and thus, not all files can be truncated).
+            if (Environment.isWindows) {
+                _ = std.os.windows.kernel32.SetEndOfFile(fd.cast());
+            } else {
                 _ = ftruncateSync(.{ .fd = fd, .len = @as(JSC.WebCore.Blob.SizeType, @truncate(written)) });
             }
         }

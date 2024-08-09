@@ -35,6 +35,7 @@ pub const InternalLoopData = extern struct {
     last_write_failed: i32,
     head: ?*SocketContext,
     iterator: ?*SocketContext,
+    closed_context_head: ?*SocketContext,
     recv_buf: [*]u8,
     send_buf: [*]u8,
     ssl_data: ?*anyopaque,
@@ -82,6 +83,34 @@ pub const InternalLoopData = extern struct {
 pub const InternalSocket = union(enum) {
     done: *Socket,
     connecting: *ConnectingSocket,
+
+    pub fn close(this: InternalSocket, comptime is_ssl: bool, code: CloseCode) void {
+        switch (this) {
+            .done => |socket| {
+                debug("us_socket_close({d})", .{@intFromPtr(socket)});
+                _ = us_socket_close(
+                    comptime @intFromBool(is_ssl),
+                    socket,
+                    code,
+                    null,
+                );
+            },
+            .connecting => |socket| {
+                debug("us_connecting_socket_close({d})", .{@intFromPtr(socket)});
+                _ = us_connecting_socket_close(
+                    comptime @intFromBool(is_ssl),
+                    socket,
+                );
+            },
+        }
+    }
+
+    pub fn isClosed(this: InternalSocket, comptime is_ssl: bool) bool {
+        return switch (this) {
+            .done => |socket| us_socket_is_closed(@intFromBool(is_ssl), socket) > 0,
+            .connecting => |socket| us_connecting_socket_is_closed(@intFromBool(is_ssl), socket) > 0,
+        };
+    }
 
     pub fn get(this: @This()) ?*Socket {
         return switch (this) {
@@ -470,40 +499,11 @@ pub fn NewSocketHandler(comptime is_ssl: bool) type {
         }
 
         pub fn isClosed(this: ThisSocket) bool {
-            switch (this.socket) {
-                .done => |socket| {
-                    return us_socket_is_closed(
-                        comptime ssl_int,
-                        socket,
-                    ) > 0;
-                },
-                .connecting => |socket| {
-                    return us_connecting_socket_is_closed(
-                        comptime ssl_int,
-                        socket,
-                    ) > 0;
-                },
-            }
+            return this.socket.isClosed(comptime is_ssl);
         }
 
         pub fn close(this: ThisSocket, code: CloseCode) void {
-            // debug("us_socket_close({d})", .{@intFromPtr(this.socket)});
-            switch (this.socket) {
-                .done => |socket| {
-                    _ = us_socket_close(
-                        comptime ssl_int,
-                        socket,
-                        code,
-                        null,
-                    );
-                },
-                .connecting => |socket| {
-                    _ = us_connecting_socket_close(
-                        comptime ssl_int,
-                        socket,
-                    );
-                },
-            }
+            return this.socket.close(comptime is_ssl, code);
         }
         pub fn localPort(this: ThisSocket) i32 {
             const socket = this.socket.get() orelse return 0;
@@ -965,8 +965,8 @@ pub fn NewSocketHandler(comptime is_ssl: bool) type {
 
                     // We close immediately in this case
                     // uSockets doesn't know if this is a TLS socket or not.
-                    // So we have to do that logic in here.
-                    ThisSocket.from(socket).close(.failure);
+                    // So we need to close it like a TCP socket.
+                    NewSocketHandler(false).from(socket).close(.failure);
 
                     Fields.onConnectError(
                         val,
@@ -1087,7 +1087,7 @@ pub const Timer = opaque {
 
 pub const SocketContext = opaque {
     pub fn getNativeHandle(this: *SocketContext, comptime ssl: bool) *anyopaque {
-        return us_socket_context_get_native_handle(comptime @as(i32, @intFromBool(ssl)), this).?;
+        return us_socket_context_get_native_handle(@intFromBool(ssl), this).?;
     }
 
     fn _deinit_ssl(this: *SocketContext) void {
@@ -1144,10 +1144,7 @@ pub const SocketContext = opaque {
     }
 
     fn getLoop(this: *SocketContext, ssl: bool) ?*Loop {
-        if (ssl) {
-            return us_socket_context_loop(@as(i32, 1), this);
-        }
-        return us_socket_context_loop(@as(i32, 0), this);
+        return us_socket_context_loop(@intFromBool(ssl), this);
     }
 
     /// closes and deinit the SocketContexts
@@ -1165,7 +1162,7 @@ pub const SocketContext = opaque {
 
     pub fn close(this: *SocketContext, ssl: bool) void {
         debug("us_socket_context_close({d})", .{@intFromPtr(this)});
-        us_socket_context_close(@as(i32, @intFromBool(ssl)), this);
+        us_socket_context_close(@intFromBool(ssl), this);
     }
 
     pub fn ext(this: *SocketContext, ssl: bool, comptime ContextType: type) ?*ContextType {
@@ -1410,6 +1407,8 @@ pub extern fn us_create_socket_context(ssl: i32, loop: ?*Loop, ext_size: i32, op
 pub extern fn us_create_bun_socket_context(ssl: i32, loop: ?*Loop, ext_size: i32, options: us_bun_socket_context_options_t) ?*SocketContext;
 pub extern fn us_bun_socket_context_add_server_name(ssl: i32, context: ?*SocketContext, hostname_pattern: [*c]const u8, options: us_bun_socket_context_options_t, ?*anyopaque) void;
 pub extern fn us_socket_context_free(ssl: i32, context: ?*SocketContext) void;
+pub extern fn us_socket_context_ref(ssl: i32, context: ?*SocketContext) void;
+pub extern fn us_socket_context_unref(ssl: i32, context: ?*SocketContext) void;
 extern fn us_socket_context_on_open(ssl: i32, context: ?*SocketContext, on_open: *const fn (*Socket, i32, [*c]u8, i32) callconv(.C) ?*Socket) void;
 extern fn us_socket_context_on_close(ssl: i32, context: ?*SocketContext, on_close: *const fn (*Socket, i32, ?*anyopaque) callconv(.C) ?*Socket) void;
 extern fn us_socket_context_on_data(ssl: i32, context: ?*SocketContext, on_data: *const fn (*Socket, [*c]u8, i32) callconv(.C) ?*Socket) void;
@@ -2231,6 +2230,9 @@ pub fn NewApp(comptime ssl: bool) type {
             pub fn endWithoutBody(res: *Response, close_connection: bool) void {
                 uws_res_end_without_body(ssl_flag, res.downcast(), close_connection);
             }
+            pub fn endSendFile(res: *Response, write_offset: u64, close_connection: bool) void {
+                uws_res_end_sendfile(ssl_flag, res.downcast(), write_offset, close_connection);
+            }
             pub fn write(res: *Response, data: []const u8) bool {
                 return uws_res_write(ssl_flag, res.downcast(), data.ptr, data.len);
             }
@@ -2310,6 +2312,7 @@ pub fn NewApp(comptime ssl: bool) type {
                 }
             }
             pub fn onAborted(res: *Response, comptime UserDataType: type, comptime handler: fn (UserDataType, *Response) void, opcional_data: UserDataType) void {
+                
                 const Wrapper = struct {
                     pub fn handle(this: *uws_res, user_data: ?*anyopaque) callconv(.C) void {
                         if (comptime UserDataType == void) {
@@ -2642,6 +2645,7 @@ extern fn uws_res_write_status(ssl: i32, res: *uws_res, status: [*c]const u8, le
 extern fn uws_res_write_header(ssl: i32, res: *uws_res, key: [*c]const u8, key_length: usize, value: [*c]const u8, value_length: usize) void;
 extern fn uws_res_write_header_int(ssl: i32, res: *uws_res, key: [*c]const u8, key_length: usize, value: u64) void;
 extern fn uws_res_end_without_body(ssl: i32, res: *uws_res, close_connection: bool) void;
+extern fn uws_res_end_sendfile(ssl: i32, res: *uws_res, write_offset: u64, close_connection: bool) void;
 extern fn uws_res_write(ssl: i32, res: *uws_res, data: [*c]const u8, length: usize) bool;
 extern fn uws_res_get_write_offset(ssl: i32, res: *uws_res) u64;
 extern fn uws_res_override_write_offset(ssl: i32, res: *uws_res, u64) void;
@@ -2914,6 +2918,108 @@ pub fn newSocketFromPair(ctx: *SocketContext, ext_size: c_int, fds: *[2]LIBUS_SO
 
 extern fn us_socket_get_error(ssl_flag: c_int, socket: *Socket) c_int;
 
+pub const AnySocket = union(enum) {
+    SocketTCP: SocketTCP,
+    SocketTLS: SocketTLS,
+
+    pub fn setTimeout(this: AnySocket, seconds: c_uint) void {
+        switch (this) {
+            .SocketTCP => this.SocketTCP.setTimeout(seconds),
+            .SocketTLS => this.SocketTLS.setTimeout(seconds),
+        }
+    }
+
+    pub fn shutdown(this: AnySocket) void {
+        debug("us_socket_shutdown({d})", .{@intFromPtr(this.socket())});
+        return us_socket_shutdown(
+            @intFromBool(this.isSSL()),
+            this.socket(),
+        );
+    }
+    pub fn shutdownRead(this: AnySocket) void {
+        debug("us_socket_shutdown_read({d})", .{@intFromPtr(this.socket())});
+        return us_socket_shutdown_read(
+            @intFromBool(this.isSSL()),
+            this.socket(),
+        );
+    }
+    pub fn isShutdown(this: AnySocket) bool {
+        return switch (this) {
+            .SocketTCP => this.SocketTCP.isShutdown(),
+            .SocketTLS => this.SocketTLS.isShutdown(),
+        };
+    }
+    pub fn isClosed(this: AnySocket) bool {
+        return switch (this) {
+            inline else => |s| s.isClosed(),
+        };
+    }
+    pub fn close(this: AnySocket) void {
+        switch (this) {
+            inline else => |s| s.close(.normal),
+        }
+    }
+
+    pub fn terminate(this: AnySocket) void {
+        switch (this) {
+            inline else => |s| s.close(.failure),
+        }
+    }
+
+    pub fn write(this: AnySocket, data: []const u8, msg_more: bool) i32 {
+        return switch (this) {
+            .SocketTCP => return this.SocketTCP.write(data, msg_more),
+            .SocketTLS => return this.SocketTLS.write(data, msg_more),
+        };
+    }
+
+    pub fn getNativeHandle(this: AnySocket) ?*anyopaque {
+        return switch (this.socket()) {
+            .done => |sock| us_socket_get_native_handle(
+                @intFromBool(this.isSSL()),
+                sock,
+            ).?,
+            else => null,
+        };
+    }
+
+    pub fn localPort(this: AnySocket) i32 {
+        return us_socket_local_port(
+            @intFromBool(this.isSSL()),
+            this.socket(),
+        );
+    }
+
+    pub fn isSSL(this: AnySocket) bool {
+        return switch (this) {
+            .SocketTCP => false,
+            .SocketTLS => true,
+        };
+    }
+
+    pub fn socket(this: AnySocket) InternalSocket {
+        return switch (this) {
+            .SocketTCP => this.SocketTCP.socket,
+            .SocketTLS => this.SocketTLS.socket,
+        };
+    }
+
+    pub fn ext(this: AnySocket, comptime ContextType: type) ?*ContextType {
+        const ptr = us_socket_ext(
+            this.isSSL(),
+            this.socket(),
+        ) orelse return null;
+
+        return @ptrCast(@alignCast(ptr));
+    }
+    pub fn context(this: AnySocket) *SocketContext {
+        return us_socket_context(
+            this.isSSL(),
+            this.socket(),
+        ).?;
+    }
+};
+
 pub const udp = struct {
     pub const Socket = opaque {
         const This = @This();
@@ -2989,3 +3095,8 @@ pub const udp = struct {
     extern fn us_udp_packet_buffer_payload(buf: ?*PacketBuffer, index: c_int) [*]u8;
     extern fn us_udp_packet_buffer_payload_length(buf: ?*PacketBuffer, index: c_int) c_int;
 };
+
+extern fn bun_clear_loop_at_thread_exit() void;
+pub fn onThreadExit() void {
+    bun_clear_loop_at_thread_exit();
+}

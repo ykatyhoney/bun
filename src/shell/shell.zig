@@ -2124,20 +2124,6 @@ pub const Token = union(TokenTag) {
             .Eof => "EOF",
         };
     }
-
-    // pub fn debug(self: Token, buf: []const u8) void {
-    //     switch (self) {
-    //         .Var => |txt| {
-    //             std.debug.print("(var) {s}\n", .{buf[txt.start..txt.end]});
-    //         },
-    //         .Text => |txt| {
-    //             std.debug.print("(txt) {s}\n", .{buf[txt.start..txt.end]});
-    //         },
-    //         else => {
-    //             std.debug.print("{s}\n", .{@tagName(self)});
-    //         },
-    //     }
-    // }
 };
 
 pub const LexerAscii = NewLexer(.ascii);
@@ -3330,14 +3316,6 @@ pub fn NewLexer(comptime encoding: StringEncoding) type {
         fn read_char(self: *@This()) ?InputChar {
             return self.chars.read_char();
         }
-
-        // fn debug_tokens(self: *const @This()) void {
-        //     std.debug.print("Tokens: \n", .{});
-        //     for (self.tokens.items, 0..) |tok, i| {
-        //         std.debug.print("{d}: ", .{i});
-        //         tok.debug(self.strpool.items[0..self.strpool.items.len]);
-        //     }
-        // }
     };
 }
 
@@ -3629,8 +3607,8 @@ pub fn hasEqSignAsciiSlow(str: []const u8) ?u32 {
 }
 
 pub const CmdEnvIter = struct {
-    env: *const std.StringArrayHashMap([:0]const u8),
-    iter: std.StringArrayHashMap([:0]const u8).Iterator,
+    env: *const bun.StringArrayHashMap([:0]const u8),
+    iter: bun.StringArrayHashMap([:0]const u8).Iterator,
 
     const Entry = struct {
         key: Key,
@@ -3657,7 +3635,7 @@ pub const CmdEnvIter = struct {
         }
     };
 
-    pub fn fromEnv(env: *const std.StringArrayHashMap([:0]const u8)) CmdEnvIter {
+    pub fn fromEnv(env: *const bun.StringArrayHashMap([:0]const u8)) CmdEnvIter {
         const iter = env.iterator();
         return .{
             .env = env,
@@ -4023,7 +4001,7 @@ const SPECIAL_CHARS_TABLE: std.bit_set.IntegerBitSet(256) = brk: {
     break :brk table;
 };
 pub fn assertSpecialChar(c: u8) void {
-    comptime bun.assert(@inComptime());
+    bun.assertComptime();
     bun.assert(SPECIAL_CHARS_TABLE.isSet(c));
 }
 /// Characters that need to be backslashed inside double quotes
@@ -4369,14 +4347,14 @@ pub fn SmolList(comptime T: type, comptime INLINED_MAX: comptime_int) type {
 
 /// Used in JS tests, see `internal-for-testing.ts` and shell tests.
 pub const TestingAPIs = struct {
-    pub fn disabledOnThisPlatform(globalThis: *JSC.JSGlobalObject, callframe: *JSC.CallFrame) callconv(.C) JSC.JSValue {
+    pub fn disabledOnThisPlatform(globalThis: *JSC.JSGlobalObject, callframe: *JSC.CallFrame) JSC.JSValue {
         if (comptime bun.Environment.isWindows) return JSValue.false;
 
         const arguments_ = callframe.arguments(1);
         var arguments = JSC.Node.ArgumentsSlice.init(globalThis.bunVM(), arguments_.slice());
         const string = arguments.nextEat() orelse {
             globalThis.throw("shellInternals.disabledOnPosix: expected 1 arguments, got 0", .{});
-            return JSC.JSValue.jsUndefined();
+            return .undefined;
         };
 
         const bunstr = string.toBunString(globalThis);
@@ -4395,12 +4373,12 @@ pub const TestingAPIs = struct {
     pub fn shellLex(
         globalThis: *JSC.JSGlobalObject,
         callframe: *JSC.CallFrame,
-    ) callconv(.C) JSC.JSValue {
+    ) JSC.JSValue {
         const arguments_ = callframe.arguments(2);
         var arguments = JSC.Node.ArgumentsSlice.init(globalThis.bunVM(), arguments_.slice());
         const string_args = arguments.nextEat() orelse {
             globalThis.throw("shell_parse: expected 2 arguments, got 0", .{});
-            return JSC.JSValue.jsUndefined();
+            return .undefined;
         };
 
         var arena = std.heap.ArenaAllocator.init(bun.default_allocator);
@@ -4485,12 +4463,12 @@ pub const TestingAPIs = struct {
     pub fn shellParse(
         globalThis: *JSC.JSGlobalObject,
         callframe: *JSC.CallFrame,
-    ) callconv(.C) JSC.JSValue {
+    ) JSC.JSValue {
         const arguments_ = callframe.arguments(2);
         var arguments = JSC.Node.ArgumentsSlice.init(globalThis.bunVM(), arguments_.slice());
         const string_args = arguments.nextEat() orelse {
             globalThis.throw("shell_parse: expected 2 arguments, got 0", .{});
-            return JSC.JSValue.jsUndefined();
+            return .undefined;
         };
 
         var arena = bun.ArenaAllocator.init(bun.default_allocator);

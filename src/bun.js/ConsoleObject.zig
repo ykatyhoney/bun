@@ -71,8 +71,8 @@ pub const MessageType = enum(u32) {
     _,
 };
 
-var stderr_mutex: bun.Lock = bun.Lock.init();
-var stdout_mutex: bun.Lock = bun.Lock.init();
+var stderr_mutex: bun.Lock = .{};
+var stdout_mutex: bun.Lock = .{};
 
 threadlocal var stderr_lock_count: u16 = 0;
 threadlocal var stdout_lock_count: u16 = 0;
@@ -87,7 +87,7 @@ pub fn messageWithTypeAndLevel(
     global: *JSGlobalObject,
     vals: [*]const JSValue,
     len: usize,
-) callconv(.C) void {
+) callconv(JSC.conv) void {
     if (comptime is_bindgen) {
         return;
     }
@@ -869,7 +869,6 @@ pub const Formatter = struct {
 
     pub const ZigFormatter = struct {
         formatter: *ConsoleObject.Formatter,
-        global: *JSGlobalObject,
         value: JSValue,
 
         pub const WriteError = error{UhOh};
@@ -878,9 +877,8 @@ pub const Formatter = struct {
             defer {
                 self.formatter.remaining_values = &[_]JSValue{};
             }
-            self.formatter.globalThis = self.global;
             self.formatter.format(
-                Tag.get(self.value, self.global),
+                Tag.get(self.value, self.formatter.globalThis),
                 @TypeOf(writer),
                 writer,
                 self.value,
@@ -1283,6 +1281,7 @@ pub const Formatter = struct {
                             writer.writeAll(end);
                             // then skip the second % so we dont hit it again
                             slice = slice[@min(slice.len, i + 1)..];
+                            len = @truncate(slice.len);
                             i = 0;
                             continue;
                         },
@@ -1295,7 +1294,7 @@ pub const Formatter = struct {
                     slice = slice[@min(slice.len, i + 1)..];
                     i = 0;
                     hit_percent = true;
-                    len = @as(u32, @truncate(slice.len));
+                    len = @truncate(slice.len);
                     const next_value = this.remaining_values[0];
                     this.remaining_values = this.remaining_values[1..];
 
@@ -1568,7 +1567,7 @@ pub const Formatter = struct {
             formatter: *ConsoleObject.Formatter,
             writer: Writer,
             count: usize = 0,
-            pub fn forEach(_: [*c]JSC.VM, globalObject: [*c]JSGlobalObject, ctx: ?*anyopaque, nextValue: JSValue) callconv(.C) void {
+            pub fn forEach(_: [*c]JSC.VM, globalObject: *JSGlobalObject, ctx: ?*anyopaque, nextValue: JSValue) callconv(.C) void {
                 var this: *@This() = bun.cast(*@This(), ctx orelse return);
                 if (single_line and this.count > 0) {
                     this.formatter.printComma(Writer, this.writer, enable_ansi_colors) catch unreachable;
@@ -1632,7 +1631,7 @@ pub const Formatter = struct {
             formatter: *ConsoleObject.Formatter,
             writer: Writer,
             is_first: bool = true,
-            pub fn forEach(_: [*c]JSC.VM, globalObject: [*c]JSGlobalObject, ctx: ?*anyopaque, nextValue: JSValue) callconv(.C) void {
+            pub fn forEach(_: [*c]JSC.VM, globalObject: *JSGlobalObject, ctx: ?*anyopaque, nextValue: JSValue) callconv(.C) void {
                 var this: *@This() = bun.cast(*@This(), ctx orelse return);
                 if (single_line) {
                     if (!this.is_first) {
@@ -2310,7 +2309,7 @@ pub const Formatter = struct {
                             .Object,
                             Writer,
                             writer_,
-                            toJSONFunction.callWithThis(this.globalThis, value, &.{}),
+                            toJSONFunction.call(this.globalThis, value, &.{}),
                             .Object,
                             enable_ansi_colors,
                         );
@@ -2325,7 +2324,7 @@ pub const Formatter = struct {
                             .Object,
                             Writer,
                             writer_,
-                            toJSONFunction.callWithThis(this.globalThis, value, &.{}),
+                            toJSONFunction.call(this.globalThis, value, &.{}),
                             .Object,
                             enable_ansi_colors,
                         );
@@ -2574,7 +2573,7 @@ pub const Formatter = struct {
             },
             .toJSON => {
                 if (value.get(this.globalThis, "toJSON")) |func| {
-                    const result = func.callWithThis(this.globalThis, value, &.{});
+                    const result = func.call(this.globalThis, value, &.{});
                     if (result.toError() == null) {
                         const prev_quote_keys = this.quote_keys;
                         this.quote_keys = true;
@@ -3191,7 +3190,7 @@ pub fn count(
     ptr: [*]const u8,
     // len
     len: usize,
-) callconv(.C) void {
+) callconv(JSC.conv) void {
     var this = globalThis.bunVM().console;
     const slice = ptr[0..len];
     const hash = bun.hash(slice);
@@ -3217,7 +3216,7 @@ pub fn countReset(
     ptr: [*]const u8,
     // len
     len: usize,
-) callconv(.C) void {
+) callconv(JSC.conv) void {
     var this = globalThis.bunVM().console;
     const slice = ptr[0..len];
     const hash = bun.hash(slice);
@@ -3237,7 +3236,7 @@ pub fn time(
     _: *JSGlobalObject,
     chars: [*]const u8,
     len: usize,
-) callconv(.C) void {
+) callconv(JSC.conv) void {
     const id = bun.hash(chars[0..len]);
     if (!pending_time_logs_loaded) {
         pending_time_logs = PendingTimers.init(default_allocator);
@@ -3257,7 +3256,7 @@ pub fn timeEnd(
     _: *JSGlobalObject,
     chars: [*]const u8,
     len: usize,
-) callconv(.C) void {
+) callconv(JSC.conv) void {
     if (!pending_time_logs_loaded) {
         return;
     }
@@ -3288,7 +3287,7 @@ pub fn timeLog(
     // args
     args: [*]JSValue,
     args_len: usize,
-) callconv(.C) void {
+) callconv(JSC.conv) void {
     if (!pending_time_logs_loaded) {
         return;
     }
@@ -3335,7 +3334,7 @@ pub fn profile(
     _: [*]const u8,
     // len
     _: usize,
-) callconv(.C) void {}
+) callconv(JSC.conv) void {}
 pub fn profileEnd(
     // console
     _: ConsoleObject.Type,
@@ -3345,7 +3344,7 @@ pub fn profileEnd(
     _: [*]const u8,
     // len
     _: usize,
-) callconv(.C) void {}
+) callconv(JSC.conv) void {}
 pub fn takeHeapSnapshot(
     // console
     _: ConsoleObject.Type,
@@ -3355,7 +3354,7 @@ pub fn takeHeapSnapshot(
     _: [*]const u8,
     // len
     _: usize,
-) callconv(.C) void {
+) callconv(JSC.conv) void {
     // TODO: this does an extra JSONStringify and we don't need it to!
     var snapshot: [1]JSValue = .{globalThis.generateHeapSnapshot()};
     ConsoleObject.messageWithTypeAndLevel(undefined, MessageType.Log, MessageLevel.Debug, globalThis, &snapshot, 1);
@@ -3367,7 +3366,7 @@ pub fn timeStamp(
     _: *JSGlobalObject,
     // args
     _: *ScriptArguments,
-) callconv(.C) void {}
+) callconv(JSC.conv) void {}
 pub fn record(
     // console
     _: ConsoleObject.Type,
@@ -3375,7 +3374,7 @@ pub fn record(
     _: *JSGlobalObject,
     // args
     _: *ScriptArguments,
-) callconv(.C) void {}
+) callconv(JSC.conv) void {}
 pub fn recordEnd(
     // console
     _: ConsoleObject.Type,
@@ -3383,7 +3382,7 @@ pub fn recordEnd(
     _: *JSGlobalObject,
     // args
     _: *ScriptArguments,
-) callconv(.C) void {}
+) callconv(JSC.conv) void {}
 pub fn screenshot(
     // console
     _: ConsoleObject.Type,
@@ -3391,62 +3390,20 @@ pub fn screenshot(
     _: *JSGlobalObject,
     // args
     _: *ScriptArguments,
-) callconv(.C) void {}
-
-pub const Export = shim.exportFunctions(.{
-    .messageWithTypeAndLevel = messageWithTypeAndLevel,
-    .count = count,
-    .countReset = countReset,
-    .time = time,
-    .timeLog = timeLog,
-    .timeEnd = timeEnd,
-    .profile = profile,
-    .profileEnd = profileEnd,
-    .takeHeapSnapshot = takeHeapSnapshot,
-    .timeStamp = timeStamp,
-    .record = record,
-    .recordEnd = recordEnd,
-    .screenshot = screenshot,
-});
+) callconv(JSC.conv) void {}
 
 comptime {
-    @export(messageWithTypeAndLevel, .{
-        .name = Export[0].symbol_name,
-    });
-    @export(count, .{
-        .name = Export[1].symbol_name,
-    });
-    @export(countReset, .{
-        .name = Export[2].symbol_name,
-    });
-    @export(time, .{
-        .name = Export[3].symbol_name,
-    });
-    @export(timeLog, .{
-        .name = Export[4].symbol_name,
-    });
-    @export(timeEnd, .{
-        .name = Export[5].symbol_name,
-    });
-    @export(profile, .{
-        .name = Export[6].symbol_name,
-    });
-    @export(profileEnd, .{
-        .name = Export[7].symbol_name,
-    });
-    @export(takeHeapSnapshot, .{
-        .name = Export[8].symbol_name,
-    });
-    @export(timeStamp, .{
-        .name = Export[9].symbol_name,
-    });
-    @export(record, .{
-        .name = Export[10].symbol_name,
-    });
-    @export(recordEnd, .{
-        .name = Export[11].symbol_name,
-    });
-    @export(screenshot, .{
-        .name = Export[12].symbol_name,
-    });
+    @export(messageWithTypeAndLevel, .{ .name = shim.symbolName("messageWithTypeAndLevel") });
+    @export(count, .{ .name = shim.symbolName("count") });
+    @export(countReset, .{ .name = shim.symbolName("countReset") });
+    @export(time, .{ .name = shim.symbolName("time") });
+    @export(timeLog, .{ .name = shim.symbolName("timeLog") });
+    @export(timeEnd, .{ .name = shim.symbolName("timeEnd") });
+    @export(profile, .{ .name = shim.symbolName("profile") });
+    @export(profileEnd, .{ .name = shim.symbolName("profileEnd") });
+    @export(takeHeapSnapshot, .{ .name = shim.symbolName("takeHeapSnapshot") });
+    @export(timeStamp, .{ .name = shim.symbolName("timeStamp") });
+    @export(record, .{ .name = shim.symbolName("record") });
+    @export(recordEnd, .{ .name = shim.symbolName("recordEnd") });
+    @export(screenshot, .{ .name = shim.symbolName("screenshot") });
 }

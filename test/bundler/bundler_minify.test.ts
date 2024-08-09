@@ -55,6 +55,17 @@ describe("bundler", () => {
     minifySyntax: true,
     target: "bun",
   });
+  itBundled("minify/StringAdditionFolding", {
+    files: {
+      "/entry.js": /* js */ `
+        capture("Objects are not valid as a React child (found: " + (childString === "[object Object]" ? "object with keys {" + Object.keys(node).join(", ") + "}" : childString) + "). " + "If you meant to render a collection of children, use an array " + "instead.")
+      `,
+    },
+    capture: [
+      '"Objects are not valid as a React child (found: " + (childString === "[object Object]" ? "object with keys {" + Object.keys(node).join(", ") + "}" : childString) + "). If you meant to render a collection of children, use an array instead."',
+    ],
+    minifySyntax: true,
+  });
   itBundled("minify/FunctionExpressionRemoveName", {
     todo: true,
     files: {
@@ -156,8 +167,8 @@ describe("bundler", () => {
       "NaN",
       "1 / 0",
       "-1 / 0",
-      "~(1 / 0)",
-      "~(-1 / 0)",
+      "-1",
+      "-1",
     ],
     minifySyntax: true,
   });
@@ -180,22 +191,7 @@ describe("bundler", () => {
         capture(~-Infinity);
       `,
     },
-    capture: [
-      "1/0",
-      "-1/0",
-      "1/0",
-      "-1/0",
-      "1/0",
-      "-1/0",
-      "NaN",
-      "NaN",
-      "NaN",
-      "NaN",
-      "1/0",
-      "1/0",
-      "~(1/0)",
-      "~(-1/0)",
-    ],
+    capture: ["1/0", "-1/0", "1/0", "-1/0", "1/0", "-1/0", "NaN", "NaN", "NaN", "NaN", "1/0", "1/0", "-1", "-1"],
     minifySyntax: true,
     minifyWhitespace: true,
   });
@@ -399,6 +395,76 @@ describe("bundler", () => {
     backend: "cli",
     run: {
       stdout: "PASS",
+    },
+  });
+  itBundled("minify/RequireInDeadBranch", {
+    files: {
+      "/entry.ts": /* js */ `
+        if (0 !== 0) {
+          require;
+        }
+      `,
+    },
+    outfile: "/out.js",
+    minifySyntax: true,
+    onAfterBundle(api) {
+      // This should not be marked as a CommonJS module
+      api.expectFile("/out.js").not.toContain("require");
+      api.expectFile("/out.js").not.toContain("module");
+    },
+  });
+  itBundled("minify/TypeOfRequire", {
+    files: {
+      "/entry.ts": /* js */ `
+        capture(typeof require); 
+      `,
+    },
+    outfile: "/out.js",
+    capture: ['"function"'],
+    minifySyntax: true,
+    onAfterBundle(api) {
+      // This should not be marked as a CommonJS module
+      api.expectFile("/out.js").not.toContain("require");
+      api.expectFile("/out.js").not.toContain("module");
+    },
+  });
+  itBundled("minify/RequireMainToImportMetaMain", {
+    files: {
+      "/entry.ts": /* js */ `
+        capture(require.main === module); 
+        capture(require.main !== module); 
+        capture(require.main == module); 
+        capture(require.main != module); 
+        capture(!(require.main === module)); 
+        capture(!(require.main !== module)); 
+        capture(!(require.main == module)); 
+        capture(!(require.main != module)); 
+        capture(!!(require.main === module)); 
+        capture(!!(require.main !== module)); 
+        capture(!!(require.main == module)); 
+        capture(!!(require.main != module)); 
+      `,
+    },
+    outfile: "/out.js",
+    capture: [
+      "import.meta.main",
+      "!import.meta.main",
+      "import.meta.main",
+      "!import.meta.main",
+      "!import.meta.main",
+      "import.meta.main",
+      "!import.meta.main",
+      "import.meta.main",
+      "import.meta.main",
+      "!import.meta.main",
+      "import.meta.main",
+      "!import.meta.main",
+    ],
+    minifySyntax: true,
+    onAfterBundle(api) {
+      // This should not be marked as a CommonJS module
+      api.expectFile("/out.js").not.toContain("require");
+      api.expectFile("/out.js").not.toContain("module");
     },
   });
 });
