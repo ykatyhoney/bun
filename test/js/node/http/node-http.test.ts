@@ -2253,3 +2253,67 @@ it("should support localAddress", async () => {
     });
   });
 });
+
+it("should not emit/throw error when writing after socket.end", async () => {
+  const { promise, resolve, reject } = Promise.withResolvers();
+
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { "Connection": "close" });
+
+    res.socket.end();
+    res.on("error", reject);
+    try {
+      const result = res.write("Hello, world!");
+      resolve(result);
+    } catch (err) {
+      reject(err);
+    }
+  });
+  try {
+    await once(server.listen(0), "listening");
+    const url = `http://localhost:${server.address().port}`;
+
+    await fetch(url, {
+      method: "POST",
+      body: Buffer.allocUnsafe(1024 * 1024 * 10),
+    })
+      .then(res => res.bytes())
+      .catch(err => {});
+
+    expect(await promise).toBeTrue();
+  } finally {
+    server.close();
+  }
+});
+
+it("should handle data if not immediately handled", async () => {
+  // Create a local server to receive data from
+  const server = http.createServer();
+
+  // Listen to the request event
+  server.on("request", (request, res) => {
+    setTimeout(() => {
+      const body: Uint8Array[] = [];
+      request.on("data", chunk => {
+        body.push(chunk);
+      });
+      request.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(Buffer.concat(body));
+      });
+    }, 100);
+  });
+  try {
+    await once(server.listen(0), "listening");
+    const url = `http://localhost:${server.address().port}`;
+    const payload = "Hello, world!".repeat(10).toString();
+    const res = await fetch(url, {
+      method: "POST",
+      body: payload,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(payload);
+  } finally {
+    server.close();
+  }
+});
