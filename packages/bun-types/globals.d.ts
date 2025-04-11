@@ -12,6 +12,8 @@ declare module "bun" {
     type NodeCryptoWebcryptoSubtleCrypto = import("crypto").webcrypto.SubtleCrypto;
     type NodeCryptoWebcryptoCryptoKey = import("crypto").webcrypto.CryptoKey;
 
+    type LibEmptyOrWSWebSocket = LibDomIsLoaded extends true ? {} : import("ws").WebSocket;
+
     type LibEmptyOrNodeUtilTextEncoder = LibDomIsLoaded extends true ? {} : import("node:util").TextEncoder;
 
     type LibEmptyOrNodeUtilTextDecoder = LibDomIsLoaded extends true ? {} : import("node:util").TextDecoder;
@@ -66,6 +68,7 @@ declare var Worker: Bun.__internal.UseLibDomIfAvailable<
   }
 >;
 
+interface WebSocket extends Bun.__internal.LibEmptyOrWSWebSocket {}
 /**
  * A WebSocket client implementation
  *
@@ -872,7 +875,29 @@ declare class BuildMessage {
   readonly level: "error" | "warning" | "info" | "debug" | "verbose";
 }
 
+interface ErrorOptions {
+  /**
+   * The cause of the error.
+   */
+  cause?: unknown;
+}
+
+interface Error {
+  /**
+   * The cause of the error.
+   */
+  cause?: unknown;
+}
+
 interface ErrorConstructor {
+  new (message?: string, options?: ErrorOptions): Error;
+
+  /**
+   * Check if a value is an instance of Error
+   *
+   * @param value - The value to check
+   * @returns True if the value is an instance of Error, false otherwise
+   */
   isError(value: unknown): value is Error;
 
   /**
