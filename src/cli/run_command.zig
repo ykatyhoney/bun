@@ -1,4 +1,4 @@
-const bun = @import("root").bun;
+const bun = @import("bun");
 const Async = bun.Async;
 const string = bun.string;
 const Output = bun.Output;
@@ -8,7 +8,7 @@ const strings = bun.strings;
 const MutableString = bun.MutableString;
 const stringZ = bun.stringZ;
 const default_allocator = bun.default_allocator;
-const C = bun.C;
+
 const std = @import("std");
 const uws = bun.uws;
 const JSC = bun.JSC;

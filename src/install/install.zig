@@ -6,7 +6,7 @@
 const default_max_simultaneous_requests_for_bun_install = 64;
 const default_max_simultaneous_requests_for_bun_install_for_proxies = 64;
 
-const bun = @import("root").bun;
+const bun = @import("bun");
 const FeatureFlags = bun.FeatureFlags;
 const string = bun.string;
 const Output = bun.Output;
@@ -16,7 +16,6 @@ const strings = bun.strings;
 const MutableString = bun.MutableString;
 const stringZ = bun.stringZ;
 const default_allocator = bun.default_allocator;
-const C = bun.C;
 const std = @import("std");
 const uws = @import("../deps/uws.zig");
 const JSC = bun.JSC;
@@ -1411,7 +1410,7 @@ pub fn NewPackageInstall(comptime kind: PkgInstallKind) type {
                                 stackpath[entry.path.len] = 0;
                                 const path: [:0]u8 = stackpath[0..entry.path.len :0];
                                 const basename: [:0]u8 = stackpath[entry.path.len - entry.basename.len .. entry.path.len :0];
-                                switch (C.clonefileat(
+                                switch (bun.c.clonefileat(
                                     entry.dir.fd,
                                     basename,
                                     destination_dir_.fd,
@@ -1464,7 +1463,7 @@ pub fn NewPackageInstall(comptime kind: PkgInstallKind) type {
                 }
             }
 
-            return switch (C.clonefileat(
+            return switch (bun.c.clonefileat(
                 this.cache_dir.fd,
                 this.cache_dir_subpath,
                 destination_dir.fd,
@@ -1505,7 +1504,7 @@ pub fn NewPackageInstall(comptime kind: PkgInstallKind) type {
             }
         };
 
-        threadlocal var node_fs_for_package_installer: bun.JSC.Node.NodeFS = .{};
+        threadlocal var node_fs_for_package_installer: bun.JSC.Node.fs.NodeFS = .{};
 
         fn initInstallDir(this: *@This(), state: *InstallDirState, destination_dir: std.fs.Dir, method: Method) Result {
             const destbase = destination_dir;
@@ -1685,7 +1684,7 @@ pub fn NewPackageInstall(comptime kind: PkgInstallKind) type {
 
                             if (comptime Environment.isPosix) {
                                 const stat = in_file.stat() catch continue;
-                                _ = C.fchmod(outfile.handle, @intCast(stat.mode));
+                                _ = bun.c.fchmod(outfile.handle, @intCast(stat.mode));
                             }
 
                             bun.copyFileWithState(.fromStdFile(in_file), .fromStdFile(outfile), &copy_file_state).unwrap() catch |err| {
@@ -2959,7 +2958,7 @@ pub const PackageManager = struct {
             const key = allocator.dupeZ(u8, path) catch bun.outOfMemory();
             entry.key_ptr.* = key;
 
-            const source = bun.sys.File.toSource(key, allocator).unwrap() catch |err| {
+            const source = bun.sys.File.toSource(key, allocator, .{}).unwrap() catch |err| {
                 _ = this.map.remove(key);
                 allocator.free(key);
                 return .{ .read_err = err };
@@ -5143,7 +5142,7 @@ pub const PackageManager = struct {
         try buffered_writer.flush();
 
         if (comptime Environment.isPosix) {
-            _ = C.fchmod(
+            _ = bun.c.fchmod(
                 tmpfile.fd.cast(),
                 // chmod 666,
                 0o0000040 | 0o0000004 | 0o0000002 | 0o0000400 | 0o0000200 | 0o0000020,
@@ -7619,7 +7618,7 @@ pub const PackageManager = struct {
                     }
                 }
 
-                if (cli.global or cli.ignore_scripts) {
+                if (cli.ignore_scripts) {
                     this.do.run_scripts = false;
                 }
 
@@ -8962,7 +8961,7 @@ pub const PackageManager = struct {
         }
 
         if (env.get("BUN_FEATURE_FLAG_FORCE_WAITER_THREAD") != null) {
-            bun.spawn.WaiterThread.setShouldUseWaiterThread();
+            bun.spawn.process.WaiterThread.setShouldUseWaiterThread();
         }
 
         if (PackageManager.verbose_install) {
@@ -9324,7 +9323,7 @@ pub const PackageManager = struct {
 
             // Step 1. parse the nearest package.json file
             {
-                const package_json_source = bun.sys.File.toSource(manager.original_package_json_path, ctx.allocator).unwrap() catch |err| {
+                const package_json_source = bun.sys.File.toSource(manager.original_package_json_path, ctx.allocator, .{}).unwrap() catch |err| {
                     Output.errGeneric("failed to read \"{s}\" for linking: {s}", .{ manager.original_package_json_path, @errorName(err) });
                     Global.crash();
                 };
@@ -9505,7 +9504,7 @@ pub const PackageManager = struct {
 
             // Step 1. parse the nearest package.json file
             {
-                const package_json_source = bun.sys.File.toSource(manager.original_package_json_path, ctx.allocator).unwrap() catch |err| {
+                const package_json_source = bun.sys.File.toSource(manager.original_package_json_path, ctx.allocator, .{}).unwrap() catch |err| {
                     Output.errGeneric("failed to read \"{s}\" for unlinking: {s}", .{ manager.original_package_json_path, @errorName(err) });
                     Global.crash();
                 };
@@ -10385,14 +10384,14 @@ pub const PackageManager = struct {
                     allocator,
                 ) orelse return .zero;
                 if (input_str.len > 0)
-                    all_positionals.append(input_str.slice()) catch bun.outOfMemory();
+                    try all_positionals.append(input_str.slice());
             } else if (input.isArray()) {
                 var iter = input.arrayIterator(globalThis);
                 while (iter.next()) |item| {
                     const slice = item.toSliceCloneWithAllocator(globalThis, allocator) orelse return .zero;
                     if (globalThis.hasException()) return .zero;
                     if (slice.len == 0) continue;
-                    all_positionals.append(slice.slice()) catch bun.outOfMemory();
+                    try all_positionals.append(slice.slice());
                 }
                 if (globalThis.hasException()) return .zero;
             } else {
@@ -10406,12 +10405,12 @@ pub const PackageManager = struct {
             var array = Array{};
 
             const update_requests = parseWithError(allocator, null, &log, all_positionals.items, &array, .add, false) catch {
-                return globalThis.throwValue(log.toJS(globalThis, bun.default_allocator, "Failed to parse dependencies"));
+                return globalThis.throwValue(try log.toJS(globalThis, bun.default_allocator, "Failed to parse dependencies"));
             };
             if (update_requests.len == 0) return .undefined;
 
             if (log.msgs.items.len > 0) {
-                return globalThis.throwValue(log.toJS(globalThis, bun.default_allocator, "Failed to parse dependencies"));
+                return globalThis.throwValue(try log.toJS(globalThis, bun.default_allocator, "Failed to parse dependencies"));
             }
 
             if (update_requests[0].failed) {
@@ -11189,7 +11188,7 @@ pub const PackageManager = struct {
             // Now that we've run the install step
             // We can save our in-memory package.json to disk
             const workspace_package_json_file = (try bun.sys.File.openat(
-                bun.invalid_fd,
+                .cwd(),
                 path,
                 bun.O.RDWR,
                 0,
@@ -11485,7 +11484,7 @@ pub const PackageManager = struct {
                 const package_json_source: logger.Source = src: {
                     const package_json_path = bun.path.joinZ(&[_][]const u8{ argument, "package.json" }, .auto);
 
-                    switch (bun.sys.File.toSource(package_json_path, manager.allocator)) {
+                    switch (bun.sys.File.toSource(package_json_path, manager.allocator, .{})) {
                         .result => |s| break :src s,
                         .err => |e| {
                             Output.err(e, "failed to read {s}", .{bun.fmt.quote(package_json_path)});
@@ -11734,7 +11733,7 @@ pub const PackageManager = struct {
                         defer outfile.close();
 
                         const stat = in_file.stat() catch continue;
-                        _ = C.fchmod(outfile.handle, @intCast(stat.mode));
+                        _ = bun.c.fchmod(outfile.handle, @intCast(stat.mode));
 
                         bun.copyFileWithState(.fromStdFile(in_file), .fromStdFile(outfile), &copy_file_state).unwrap() catch |err| {
                             Output.prettyError("<r><red>{s}<r>: copying file {}", .{ @errorName(err), bun.fmt.fmtOSPath(entry.path, .{}) });
@@ -11896,7 +11895,7 @@ pub const PackageManager = struct {
                 const package_json_source: logger.Source = brk: {
                     const package_json_path = bun.path.joinZ(&[_][]const u8{ argument, "package.json" }, .auto);
 
-                    switch (bun.sys.File.toSource(package_json_path, manager.allocator)) {
+                    switch (bun.sys.File.toSource(package_json_path, manager.allocator, .{})) {
                         .result => |s| break :brk s,
                         .err => |e| {
                             Output.err(e, "failed to read {s}", .{bun.fmt.quote(package_json_path)});
@@ -12240,8 +12239,8 @@ pub const PackageManager = struct {
             .posix,
         );
 
-        var nodefs = bun.JSC.Node.NodeFS{};
-        const args = bun.JSC.Node.Arguments.Mkdir{
+        var nodefs = bun.JSC.Node.fs.NodeFS{};
+        const args = bun.JSC.Node.fs.Arguments.Mkdir{
             .path = .{ .string = bun.PathString.init(manager.options.patch_features.commit.patches_dir) },
         };
         if (nodefs.mkdirRecursive(args).asErr()) |e| {
@@ -13672,9 +13671,9 @@ pub const PackageManager = struct {
                                         Global.exit(1);
                                     };
 
-                                    const is_writable = if (stat.uid == bun.C.getuid())
+                                    const is_writable = if (stat.uid == bun.c.getuid())
                                         stat.mode & bun.S.IWUSR > 0
-                                    else if (stat.gid == bun.C.getgid())
+                                    else if (stat.gid == bun.c.getgid())
                                         stat.mode & bun.S.IWGRP > 0
                                     else
                                         stat.mode & bun.S.IWOTH > 0;
@@ -14113,7 +14112,7 @@ pub const PackageManager = struct {
 
             // Attempt to create a new node_modules folder
             if (bun.sys.mkdir("node_modules", 0o755).asErr()) |err| {
-                if (err.errno != @intFromEnum(bun.C.E.EXIST)) {
+                if (err.errno != @intFromEnum(bun.sys.E.EXIST)) {
                     Output.err(err, "could not create the <b>\"node_modules\"<r> directory", .{});
                     Global.crash();
                 }
@@ -15311,7 +15310,7 @@ pub const PackageManager = struct {
             }
         }
 
-        if (manager.options.do.run_scripts and install_root_dependencies) {
+        if (manager.options.do.run_scripts and install_root_dependencies and !manager.options.global) {
             if (manager.root_lifecycle_scripts) |scripts| {
                 if (comptime Environment.allow_assert) {
                     bun.assert(scripts.total > 0);

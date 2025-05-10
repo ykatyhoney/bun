@@ -91,7 +91,7 @@ pub const Type = struct {
     /// `FrameworkRouter` itself does not use this value.
     server_file: OpaqueFileId,
     /// `FrameworkRouter` itself does not use this value.
-    server_file_string: JSC.Strong,
+    server_file_string: JSC.Strong.Optional,
 
     pub fn rootRouteIndex(type_index: Index) Route.Index {
         return Route.Index.init(type_index.get());
@@ -412,7 +412,7 @@ pub const Style = union(enum) {
     nextjs_pages,
     nextjs_app_ui,
     nextjs_app_routes,
-    javascript_defined: JSC.Strong,
+    javascript_defined: JSC.Strong.Optional,
 
     pub const map = bun.ComptimeStringMap(Style, .{
         .{ "nextjs-pages", .nextjs_pages },
@@ -431,7 +431,7 @@ pub const Style = union(enum) {
                 return style;
             }
         } else if (value.isCallable()) {
-            return .{ .javascript_defined = JSC.Strong.create(value, global) };
+            return .{ .javascript_defined = .create(value, global) };
         }
 
         return global.throwInvalidArguments(error_message, .{});
@@ -573,7 +573,7 @@ pub const Style = union(enum) {
                 if (is_optional and !is_catch_all)
                     return log.fail("Optional parameters can only be catch-all (change to \"[[...{s}]]\" or remove extra brackets)", .{param_name}, start, len);
                 // Potential future proofing
-                if (std.mem.indexOfAny(u8, param_name, "?*{}()=:#,")) |bad_char_index|
+                if (bun.strings.indexOfAny(param_name, "?*{}()=:#,")) |bad_char_index|
                     return log.fail("Parameter name cannot contain \"{c}\"", .{param_name[bad_char_index]}, start + bad_char_index, 1);
 
                 if (has_ending_double_bracket and !is_optional)
@@ -1321,7 +1321,7 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
-const bun = @import("root").bun;
+const bun = @import("bun");
 const strings = bun.strings;
 const Resolver = bun.resolver.Resolver;
 const DirInfo = bun.resolver.DirInfo;

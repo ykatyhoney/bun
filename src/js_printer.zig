@@ -9,7 +9,7 @@ const runtime = @import("runtime.zig");
 const Lock = bun.Mutex;
 const Api = @import("./api/schema.zig").Api;
 const fs = @import("fs.zig");
-const bun = @import("root").bun;
+const bun = @import("bun");
 const string = bun.string;
 const Output = bun.Output;
 const Global = bun.Global;
@@ -18,7 +18,7 @@ const strings = bun.strings;
 const MutableString = bun.MutableString;
 const stringZ = bun.stringZ;
 const default_allocator = bun.default_allocator;
-const C = bun.C;
+
 const Ref = @import("ast/base.zig").Ref;
 const StoredFileDescriptorType = bun.StoredFileDescriptorType;
 const FeatureFlags = bun.FeatureFlags;
@@ -165,7 +165,7 @@ pub fn estimateLengthForUTF8(input: []const u8, comptime ascii_only: bool, compt
     var remaining = input;
     var len: usize = 2; // for quotes
 
-    while (strings.indexOfNeedsEscape(remaining, quote_char)) |i| {
+    while (strings.indexOfNeedsEscapeForJavaScriptString(remaining, quote_char)) |i| {
         len += i;
         remaining = remaining[i..];
         const char_len = strings.wtf8ByteSequenceLengthWithInvalid(remaining[0]);
@@ -249,7 +249,7 @@ pub fn writePreQuotedString(text_in: []const u8, comptime Writer: type, writer: 
 
             switch (encoding) {
                 .ascii, .utf8 => {
-                    if (strings.indexOfNeedsEscape(remain, quote_char)) |j| {
+                    if (strings.indexOfNeedsEscapeForJavaScriptString(remain, quote_char)) |j| {
                         const text_chunk = text[i .. i + clamped_width];
                         try writer.writeAll(text_chunk);
                         i += clamped_width;
@@ -1375,7 +1375,7 @@ fn NewPrinter(
         }
 
         pub fn printSymbol(p: *Printer, ref: Ref) void {
-            bun.assert(!ref.isNull());
+            bun.assert(!ref.isNull()); // Invalid Symbol
             const name = p.renamer.nameForSymbol(ref);
 
             p.printIdentifier(name);

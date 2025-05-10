@@ -955,13 +955,6 @@ interface ErrorConstructor {
   captureStackTrace(targetObject: object, constructorOpt?: Function): void;
 
   /**
-   * Optional override for formatting stack traces
-   *
-   * @see https://v8.dev/docs/stack-trace-api#customizing-stack-traces
-   */
-  prepareStackTrace?: ((err: Error, stackTraces: NodeJS.CallSite[]) => any) | undefined;
-
-  /**
    * The maximum number of stack frames to capture.
    */
   stackTraceLimit: number;
@@ -1312,7 +1305,7 @@ interface PromiseConstructor {
    * This is useful when you want to return a Promise and have code outside the Promise
    * resolve or reject it.
    *
-   * ## Example
+   * @example
    * ```ts
    * const { promise, resolve, reject } = Promise.withResolvers();
    *
@@ -1322,8 +1315,6 @@ interface PromiseConstructor {
    *
    * await promise; // "Hello world!"
    * ```
-   *
-   * `Promise.withResolvers()` is a [stage3 proposal](https://github.com/tc39/proposal-promise-with-resolvers).
    */
   withResolvers<T>(): {
     promise: Promise<T>;
@@ -1832,14 +1823,40 @@ interface BunFetchRequestInit extends RequestInit {
   /**
    * Override http_proxy or HTTPS_PROXY
    * This is a custom property that is not part of the Fetch API specification.
+   *
+   * @example
+   * ```js
+   * const response = await fetch("http://example.com", {
+   *  proxy: "https://username:password@127.0.0.1:8080"
+   * });
+   * ```
    */
   proxy?: string;
 
   /**
    * Override the default S3 options
+   *
+   * @example
+   * ```js
+   * const response = await fetch("s3://bucket/key", {
+   *   s3: {
+   *     accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+   *     secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+   *     region: "us-east-1",
+   *   }
+   * });
+   * ```
    */
   s3?: Bun.S3Options;
 
+  /**
+   * Make the request over a Unix socket
+   *
+   * @example
+   * ```js
+   * const response = await fetch("http://example.com", { unix: "/path/to/socket" });
+   * ```
+   */
   unix?: string;
 }
 

@@ -1,4 +1,4 @@
-const bun = @import("root").bun;
+const bun = @import("bun");
 const string = bun.string;
 const Output = bun.Output;
 const StoredFileDescriptorType = bun.StoredFileDescriptorType;
@@ -9,7 +9,6 @@ const MutableString = bun.MutableString;
 const stringZ = bun.stringZ;
 const FeatureFlags = bun.FeatureFlags;
 const default_allocator = bun.default_allocator;
-const C = bun.C;
 
 const js_ast = bun.JSAst;
 const logger = bun.logger;

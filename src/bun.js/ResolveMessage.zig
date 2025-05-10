@@ -1,4 +1,4 @@
-const bun = @import("root").bun;
+const bun = @import("bun");
 const logger = bun.logger;
 const std = @import("std");
 const Fs = bun.fs;
@@ -179,10 +179,10 @@ pub const ResolveMessage = struct {
         allocator: std.mem.Allocator,
         msg: logger.Msg,
         referrer: string,
-    ) JSC.JSValue {
-        var resolve_error = allocator.create(ResolveMessage) catch unreachable;
+    ) bun.OOM!JSC.JSValue {
+        var resolve_error = try allocator.create(ResolveMessage);
         resolve_error.* = ResolveMessage{
-            .msg = msg.clone(allocator) catch unreachable,
+            .msg = try msg.clone(allocator),
             .allocator = allocator,
             .referrer = Fs.Path.init(referrer),
         };
@@ -193,7 +193,7 @@ pub const ResolveMessage = struct {
         this: *ResolveMessage,
         globalThis: *JSC.JSGlobalObject,
     ) JSC.JSValue {
-        return JSC.BuildMessage.generatePositionObject(this.msg, globalThis);
+        return bun.api.BuildMessage.generatePositionObject(this.msg, globalThis);
     }
 
     pub fn getMessage(
