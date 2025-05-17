@@ -1,5 +1,5 @@
 const std = @import("std");
-const bun = @import("root").bun;
+const bun = @import("bun");
 const JSC = bun.JSC;
 const Output = bun.Output;
 const ConsoleObject = @This();
@@ -1237,7 +1237,7 @@ pub const Formatter = struct {
 
             if (js_type.canGet() and js_type != .ProxyObject and !opts.disable_inspect_custom) {
                 // Attempt to get custom formatter
-                if (value.fastGet(globalThis, .inspectCustom)) |callback_value| {
+                if (value.fastGet(globalThis, .inspectCustom) catch return .{ .tag = .RevokedProxy }) |callback_value| {
                     if (callback_value.isCallable()) {
                         return .{
                             .tag = .{
@@ -1250,7 +1250,6 @@ pub const Formatter = struct {
                         };
                     }
                 }
-                if (globalThis.hasException()) return .{ .tag = .RevokedProxy };
             }
 
             if (js_type == .DOMWrapper) {
@@ -1502,7 +1501,7 @@ pub const Formatter = struct {
                                 }
 
                                 if (next_value.isNumber() or !next_value.isSymbol()) double_convert: {
-                                    var value = next_value.coerceToDouble(global);
+                                    var value = try next_value.toNumber(global);
 
                                     if (!std.math.isFinite(value)) {
                                         // for NaN and the string Infinity and -Infinity, parseInt returns NaN
@@ -1577,7 +1576,7 @@ pub const Formatter = struct {
                                 // because spec says to convert the value to a string
                                 // and then parse as a number, but we are just coercing
                                 // a number.
-                                break :brk next_value.coerceToDouble(global);
+                                break :brk try next_value.toNumber(global);
                             };
 
                             const abs = @abs(converted);
@@ -2571,7 +2570,7 @@ pub const Formatter = struct {
                 } else if (value.as(JSC.WebCore.S3Client)) |s3client| {
                     s3client.writeFormat(ConsoleObject.Formatter, this, writer_, enable_ansi_colors) catch {};
                     return;
-                } else if (value.as(JSC.FetchHeaders) != null) {
+                } else if (value.as(bun.webcore.FetchHeaders) != null) {
                     if (value.get_unsafe(this.globalThis, "toJSON")) |toJSONFunction| {
                         this.addForNewLine("Headers ".len);
                         writer.writeAll(comptime Output.prettyFmt("<r>Headers ", enable_ansi_colors));
@@ -2608,7 +2607,7 @@ pub const Formatter = struct {
 
                     // this case should never happen
                     return try this.printAs(.Undefined, Writer, writer_, .undefined, .Cell, enable_ansi_colors);
-                } else if (value.as(JSC.API.Bun.Timer.TimeoutObject)) |timer| {
+                } else if (value.as(bun.api.Timer.TimeoutObject)) |timer| {
                     this.addForNewLine("Timeout(# ) ".len + bun.fmt.fastDigitCount(@as(u64, @intCast(@max(timer.internals.id, 0)))));
                     if (timer.internals.flags.kind == .setInterval) {
                         this.addForNewLine("repeats ".len + bun.fmt.fastDigitCount(@as(u64, @intCast(@max(timer.internals.id, 0)))));
@@ -2622,17 +2621,17 @@ pub const Formatter = struct {
                     }
 
                     return;
-                } else if (value.as(JSC.API.Bun.Timer.ImmediateObject)) |immediate| {
+                } else if (value.as(bun.api.Timer.ImmediateObject)) |immediate| {
                     this.addForNewLine("Immediate(# ) ".len + bun.fmt.fastDigitCount(@as(u64, @intCast(@max(immediate.internals.id, 0)))));
                     writer.print(comptime Output.prettyFmt("<r><blue>Immediate<r> <d>(#<yellow>{d}<r><d>)<r>", enable_ansi_colors), .{
                         immediate.internals.id,
                     });
 
                     return;
-                } else if (value.as(JSC.BuildMessage)) |build_log| {
+                } else if (value.as(bun.api.BuildMessage)) |build_log| {
                     build_log.msg.writeFormat(writer_, enable_ansi_colors) catch {};
                     return;
-                } else if (value.as(JSC.ResolveMessage)) |resolve_log| {
+                } else if (value.as(bun.api.ResolveMessage)) |resolve_log| {
                     resolve_log.msg.writeFormat(writer_, enable_ansi_colors) catch {};
                     return;
                 } else if (JestPrettyFormat.printAsymmetricMatcher(this, Format, &writer, writer_, name_buf, value, enable_ansi_colors)) {
@@ -2864,7 +2863,8 @@ pub const Formatter = struct {
                     const prev_quote_keys = this.quote_keys;
                     this.quote_keys = true;
                     defer this.quote_keys = prev_quote_keys;
-                    try this.printAs(.Object, Writer, writer_, result, value.jsType(), enable_ansi_colors);
+                    const tag = ConsoleObject.Formatter.Tag.get(result, this.globalThis);
+                    try this.format(tag, Writer, writer_, result, this.globalThis, enable_ansi_colors);
                     return;
                 }
 
@@ -2938,7 +2938,7 @@ pub const Formatter = struct {
                         },
                     }
 
-                    if (value.fastGet(this.globalThis, .message)) |message_value| {
+                    if (try value.fastGet(this.globalThis, .message)) |message_value| {
                         if (message_value.isString()) {
                             if (!this.single_line) {
                                 this.writeIndent(Writer, writer_) catch unreachable;
@@ -2972,7 +2972,7 @@ pub const Formatter = struct {
                                 comptime Output.prettyFmt("<r><blue>data<d>:<r> ", enable_ansi_colors),
                                 .{},
                             );
-                            const data = value.fastGet(this.globalThis, .data) orelse JSValue.undefined;
+                            const data = (try value.fastGet(this.globalThis, .data)) orelse JSValue.undefined;
                             const tag = Tag.getAdvanced(data, this.globalThis, .{
                                 .hide_global = true,
                                 .disable_inspect_custom = this.disable_inspect_custom,
@@ -2985,7 +2985,7 @@ pub const Formatter = struct {
                             }
                         },
                         .ErrorEvent => {
-                            if (value.fastGet(this.globalThis, .@"error")) |error_value| {
+                            if (try value.fastGet(this.globalThis, .@"error")) |error_value| {
                                 if (!this.single_line) {
                                     this.writeIndent(Writer, writer_) catch unreachable;
                                 }
@@ -3360,6 +3360,8 @@ pub const Formatter = struct {
                     if (arrayBuffer.typed_array_type == .Uint8Array and
                         arrayBuffer.value.isBuffer(this.globalThis))
                         "Buffer"
+                    else if (arrayBuffer.typed_array_type == .ArrayBuffer and arrayBuffer.shared)
+                        "SharedArrayBuffer"
                     else
                         bun.asByteSlice(@tagName(arrayBuffer.typed_array_type)),
                 );

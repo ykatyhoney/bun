@@ -1,4 +1,4 @@
-const bun = @import("root").bun;
+const bun = @import("bun");
 const Global = bun.Global;
 const logger = bun.logger;
 const Dependency = @import("./dependency.zig");
@@ -54,16 +54,10 @@ const SloppyGlobalGitConfig = struct {
         const config_file_path = bun.path.joinAbsStringBufZ(home_dir_path, &config_file_path_buf, &.{".gitconfig"}, .auto);
         var stack_fallback = std.heap.stackFallback(4096, bun.default_allocator);
         const allocator = stack_fallback.get();
-        var source = File.toSource(config_file_path, allocator).unwrap() catch {
+        const source = File.toSource(config_file_path, allocator, .{ .convert_bom = true }).unwrap() catch {
             return;
         };
         defer allocator.free(source.contents);
-
-        if (comptime Environment.isWindows) {
-            if (strings.BOM.detect(source.contents)) |bom| {
-                source.contents = bom.removeAndConvertToUTF8AndFree(allocator, @constCast(source.contents)) catch bun.outOfMemory();
-            }
-        }
 
         var remaining = bun.strings.split(source.contents, "\n");
         var found_askpass = false;

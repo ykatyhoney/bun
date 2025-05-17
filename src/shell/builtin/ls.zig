@@ -247,10 +247,10 @@ pub const ShellLsTask = struct {
         const fd = switch (ShellSyscall.openat(this.cwd, this.path, bun.O.RDONLY | bun.O.DIRECTORY, 0)) {
             .err => |e| {
                 switch (e.getErrno()) {
-                    bun.C.E.NOENT => {
+                    .NOENT => {
                         this.err = this.errorWithPath(e, this.path);
                     },
-                    bun.C.E.NOTDIR => {
+                    .NOTDIR => {
                         this.result_kind = .file;
                         this.addEntry(this.path);
                     },
@@ -779,7 +779,7 @@ pub inline fn bltn(this: *Ls) *Builtin {
 
 const Ls = @This();
 const log = bun.Output.scoped(.ls, true);
-const bun = @import("root").bun;
+const bun = @import("bun");
 const shell = bun.shell;
 const interpreter = @import("../interpreter.zig");
 const Interpreter = interpreter.Interpreter;
