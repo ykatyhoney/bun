@@ -249,10 +249,10 @@ pub const ShellMkdirTask = struct {
             break :brk ResolvePath.joinZ(parts, .auto);
         };
 
-        var node_fs = JSC.Node.NodeFS{};
+        var node_fs = JSC.Node.fs.NodeFS{};
         // Recursive
         if (this.opts.parents) {
-            const args = JSC.Node.Arguments.Mkdir{
+            const args = JSC.Node.fs.Arguments.Mkdir{
                 .path = JSC.Node.PathLike{ .string = bun.PathString.init(filepath) },
                 .recursive = true,
                 .always_return_none = true,
@@ -268,7 +268,7 @@ pub const ShellMkdirTask = struct {
                 },
             }
         } else {
-            const args = JSC.Node.Arguments.Mkdir{
+            const args = JSC.Node.fs.Arguments.Mkdir{
                 .path = JSC.Node.PathLike{ .string = bun.PathString.init(filepath) },
                 .recursive = false,
                 .always_return_none = true,
@@ -378,7 +378,7 @@ pub inline fn bltn(this: *Mkdir) *Builtin {
 
 // --
 const debug = bun.Output.scoped(.ShellMkdir, true);
-const bun = @import("root").bun;
+const bun = @import("bun");
 const shell = bun.shell;
 const interpreter = @import("../interpreter.zig");
 const Interpreter = interpreter.Interpreter;
@@ -387,21 +387,11 @@ const Result = Interpreter.Builtin.Result;
 const ParseError = interpreter.ParseError;
 const ParseFlagResult = interpreter.ParseFlagResult;
 const ExitCode = shell.ExitCode;
-const IOReader = shell.IOReader;
-const IOWriter = shell.IOWriter;
-const IO = shell.IO;
-const IOVector = shell.IOVector;
-const IOVectorSlice = shell.IOVectorSlice;
-const IOVectorSliceMut = shell.IOVectorSliceMut;
-const Cat = @This();
-const ReadChunkAction = interpreter.ReadChunkAction;
 const JSC = bun.JSC;
 const Maybe = bun.sys.Maybe;
 const std = @import("std");
 const FlagParser = interpreter.FlagParser;
 
-const ShellSyscall = interpreter.ShellSyscall;
-const unsupportedFlag = interpreter.unsupportedFlag;
 const Mkdir = @This();
 const log = debug;
 const OutputTask = interpreter.OutputTask;
@@ -409,5 +399,4 @@ const CoroutineResult = interpreter.CoroutineResult;
 const OutputSrc = interpreter.OutputSrc;
 const WorkPool = bun.JSC.WorkPool;
 const ResolvePath = bun.path;
-const Syscall = bun.sys;
 const ArrayList = std.ArrayList;

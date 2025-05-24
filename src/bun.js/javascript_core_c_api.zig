@@ -4,20 +4,18 @@
 /// To generate a new class exposed to JavaScript, look at *.classes.ts
 /// Otherwise, use `JSC.JSValue`.
 /// ************************************
-const bun = @import("root").bun;
-const std = @import("std");
-const cpp = @import("./bindings/bindings.zig");
+const bun = @import("bun");
 const JSC = bun.JSC;
 const generic = opaque {
-    pub fn value(this: *const generic) cpp.JSValue {
-        return @as(cpp.JSValue, @enumFromInt(@as(cpp.JSValueReprInt, @bitCast(@intFromPtr(this)))));
+    pub fn value(this: *const generic) JSC.JSValue {
+        return @enumFromInt(@as(JSC.JSValue.backing_int, @bitCast(@intFromPtr(this))));
     }
 };
 pub const Private = anyopaque;
 pub const struct_OpaqueJSContextGroup = generic;
 pub const JSContextGroupRef = ?*const struct_OpaqueJSContextGroup;
 pub const struct_OpaqueJSContext = generic;
-pub const JSGlobalContextRef = ?*cpp.JSGlobalObject;
+pub const JSGlobalContextRef = ?*JSC.JSGlobalObject;
 
 pub const struct_OpaqueJSPropertyNameAccumulator = generic;
 pub const JSPropertyNameAccumulatorRef = ?*struct_OpaqueJSPropertyNameAccumulator;
@@ -74,31 +72,6 @@ pub extern fn JSValueGetType(ctx: *JSC.JSGlobalObject, value: JSValueRef) JSType
 pub extern fn JSValueMakeNull(ctx: *JSC.JSGlobalObject) JSValueRef;
 pub extern fn JSValueToNumber(ctx: *JSC.JSGlobalObject, value: JSValueRef, exception: ExceptionRef) f64;
 pub extern fn JSValueToObject(ctx: *JSC.JSGlobalObject, value: JSValueRef, exception: ExceptionRef) JSObjectRef;
-
-const log_protection = bun.Environment.allow_assert and false;
-pub inline fn JSValueUnprotect(ctx: *JSC.JSGlobalObject, value: JSValueRef) void {
-    const Wrapped = struct {
-        pub extern fn JSValueUnprotect(ctx: *JSC.JSGlobalObject, value: JSValueRef) void;
-    };
-    if (comptime log_protection) {
-        const Output = bun.Output;
-        Output.debug("[unprotect] {d}\n", .{@intFromPtr(value)});
-    }
-    // wrapper exists to make it easier to set a breakpoint
-    Wrapped.JSValueUnprotect(ctx, value);
-}
-
-pub inline fn JSValueProtect(ctx: *JSC.JSGlobalObject, value: JSValueRef) void {
-    const Wrapped = struct {
-        pub extern fn JSValueProtect(ctx: *JSC.JSGlobalObject, value: JSValueRef) void;
-    };
-    if (comptime log_protection) {
-        const Output = bun.Output;
-        Output.debug("[protect] {d}\n", .{@intFromPtr(value)});
-    }
-    // wrapper exists to make it easier to set a breakpoint
-    Wrapped.JSValueProtect(ctx, value);
-}
 
 pub const JSPropertyAttributes = enum(c_uint) {
     kJSPropertyAttributeNone = 0,
@@ -162,7 +135,7 @@ pub const OpaqueJSPropertyNameAccumulator = struct_OpaqueJSPropertyNameAccumulat
 // This is a workaround for not receiving a JSException* object
 // This function lets us use the C API but returns a plain old JSValue
 // allowing us to have exceptions that include stack traces
-pub extern "c" fn JSObjectCallAsFunctionReturnValueHoldingAPILock(ctx: *JSC.JSGlobalObject, object: JSObjectRef, thisObject: JSObjectRef, argumentCount: usize, arguments: [*c]const JSValueRef) cpp.JSValue;
+pub extern "c" fn JSObjectCallAsFunctionReturnValueHoldingAPILock(ctx: *JSC.JSGlobalObject, object: JSObjectRef, thisObject: JSObjectRef, argumentCount: usize, arguments: [*c]const JSValueRef) JSC.JSValue;
 
 pub extern fn JSRemoteInspectorDisableAutoStart() void;
 pub extern fn JSRemoteInspectorStart() void;

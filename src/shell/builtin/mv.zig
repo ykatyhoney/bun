@@ -40,7 +40,7 @@ pub const ShellMvCheckTargetTask = struct {
         const fd = switch (ShellSyscall.openat(this.cwd, this.target, bun.O.RDONLY | bun.O.DIRECTORY, 0)) {
             .err => |e| {
                 switch (e.getErrno()) {
-                    bun.C.E.NOTDIR => {
+                    Syscall.E.NOTDIR => {
                         this.result = .{ .result = null };
                     },
                     else => {
@@ -105,7 +105,7 @@ pub const ShellMvBatchedTask = struct {
     pub fn moveInDir(this: *@This(), src: [:0]const u8, buf: *bun.PathBuffer) bool {
         const path_in_dir_ = bun.path.normalizeBuf(ResolvePath.basename(src), buf, .auto);
         if (path_in_dir_.len + 1 >= buf.len) {
-            this.err = Syscall.Error.fromCode(bun.C.E.NAMETOOLONG, .rename);
+            this.err = Syscall.Error.fromCode(Syscall.E.NAMETOOLONG, .rename);
             return false;
         }
         buf[path_in_dir_.len] = 0;
@@ -223,7 +223,7 @@ pub fn next(this: *Mv) Maybe(void) {
                 const maybe_fd: ?bun.FileDescriptor = switch (check_target.task.result.?) {
                     .err => |e| brk: {
                         switch (e.getErrno()) {
-                            bun.C.E.NOENT => {
+                            Syscall.E.NOENT => {
                                 // Means we are renaming entry, not moving to a directory
                                 if (this.args.sources.len == 1) break :brk null;
 
@@ -498,15 +498,9 @@ const Syscall = bun.sys;
 const ShellTask = interpreter.ShellTask;
 const assert = bun.assert;
 const std = @import("std");
-const bun = @import("root").bun;
+const bun = @import("bun");
 const shell = bun.shell;
 const ExitCode = shell.ExitCode;
-const IOReader = shell.IOReader;
-const IOWriter = shell.IOWriter;
-const IO = shell.IO;
-const IOVector = shell.IOVector;
-const IOVectorSlice = shell.IOVectorSlice;
-const IOVectorSliceMut = shell.IOVectorSliceMut;
 const JSC = bun.JSC;
 const Maybe = bun.sys.Maybe;
 
@@ -515,9 +509,5 @@ const Interpreter = interpreter.Interpreter;
 const Builtin = Interpreter.Builtin;
 const Result = Interpreter.Builtin.Result;
 const ParseError = interpreter.ParseError;
-const ParseFlagResult = interpreter.ParseFlagResult;
-const ReadChunkAction = interpreter.ReadChunkAction;
-const FlagParser = interpreter.FlagParser;
 const ShellSyscall = interpreter.ShellSyscall;
-const unsupportedFlag = interpreter.unsupportedFlag;
 const ResolvePath = bun.path;

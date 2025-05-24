@@ -1,22 +1,15 @@
-const bun = @import("root").bun;
+const bun = @import("bun");
 const std = @import("std");
 const builtin = @import("builtin");
-const Arena = std.heap.ArenaAllocator;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const JSC = bun.JSC;
 const JSValue = bun.JSC.JSValue;
-const JSPromise = bun.JSC.JSPromise;
 const JSGlobalObject = bun.JSC.JSGlobalObject;
-const Which = @import("../which.zig");
-const Braces = @import("./braces.zig");
 const Syscall = @import("../sys.zig");
 const Glob = @import("../glob.zig");
-const ResolvePath = @import("../resolver/resolve_path.zig");
-const DirIterator = @import("../bun.js/node/dir_iterator.zig");
-const CodepointIterator = @import("../string_immutable.zig").PackedCodepointIterator;
+const CodepointIterator = @import("../string_immutable.zig").UnsignedCodepointIterator;
 const isAllAscii = @import("../string_immutable.zig").isAllASCII;
-const TaggedPointerUnion = @import("../ptr.zig").TaggedPointerUnion;
 
 pub const interpret = @import("./interpreter.zig");
 pub const subproc = @import("./subproc.zig");
@@ -170,7 +163,6 @@ fn setEnv(name: [*:0]const u8, value: [*:0]const u8) void {
 pub const Pipe = [2]bun.FileDescriptor;
 
 const log = bun.Output.scoped(.SHELL, true);
-const logsys = bun.Output.scoped(.SYS, true);
 
 pub const GlobalJS = struct {
     globalThis: *JSC.JSGlobalObject,
@@ -3350,9 +3342,9 @@ const SrcUnicode = struct {
     cursor: CodepointIterator.Cursor,
     next_cursor: CodepointIterator.Cursor,
 
-    const IndexValue = packed struct(u32) {
-        char: u29,
-        width: u3 = 0,
+    const IndexValue = struct {
+        char: u32,
+        width: u8,
     };
 
     fn nextCursor(iter: *const CodepointIterator, cursor: *CodepointIterator.Cursor) void {
@@ -3563,26 +3555,10 @@ var stderr_mutex = bun.Mutex{};
 
 pub fn hasEqSign(str: []const u8) ?u32 {
     if (isAllAscii(str)) {
-        if (str.len < 16)
-            return hasEqSignAsciiSlow(str);
-
-        const needles: @Vector(16, u8) = @splat('=');
-
-        var i: u32 = 0;
-        while (i + 16 <= str.len) : (i += 16) {
-            const haystack = str[i..][0..16].*;
-            const result = haystack == needles;
-
-            if (std.simd.firstTrue(result)) |idx| {
-                return @intCast(i + idx);
-            }
-        }
-
-        return i + (hasEqSignAsciiSlow(str[i..]) orelse return null);
+        return bun.strings.indexOfChar(str, '=');
     }
 
     // TODO actually i think that this can also use the simd stuff
-
     var iter = CodepointIterator.init(str);
     var cursor = CodepointIterator.Cursor{};
     while (iter.next(&cursor)) {
@@ -3591,11 +3567,6 @@ pub fn hasEqSign(str: []const u8) ?u32 {
         }
     }
 
-    return null;
-}
-
-pub fn hasEqSignAsciiSlow(str: []const u8) ?u32 {
-    for (str, 0..) |c, i| if (c == '=') return @intCast(i);
     return null;
 }
 
@@ -3868,7 +3839,7 @@ pub fn handleTemplateValue(
             return;
         }
 
-        if (template_value.implementsToString(globalThis)) {
+        if (try template_value.implementsToString(globalThis)) {
             if (!try builder.appendJSValueStr(template_value, true)) {
                 return globalThis.throw("Shell script string contains invalid UTF-16", .{});
             }
@@ -4303,7 +4274,7 @@ pub const TestingAPIs = struct {
         if (comptime bun.Environment.isWindows) return JSValue.false;
 
         const arguments_ = callframe.arguments_old(1);
-        var arguments = JSC.Node.ArgumentsSlice.init(globalThis.bunVM(), arguments_.slice());
+        var arguments = JSC.CallFrame.ArgumentsSlice.init(globalThis.bunVM(), arguments_.slice());
         const string = arguments.nextEat() orelse {
             return globalThis.throw("shellInternals.disabledOnPosix: expected 1 arguments, got 0", .{});
         };
@@ -4326,7 +4297,7 @@ pub const TestingAPIs = struct {
         callframe: *JSC.CallFrame,
     ) bun.JSError!JSC.JSValue {
         const arguments_ = callframe.arguments_old(2);
-        var arguments = JSC.Node.ArgumentsSlice.init(globalThis.bunVM(), arguments_.slice());
+        var arguments = JSC.CallFrame.ArgumentsSlice.init(globalThis.bunVM(), arguments_.slice());
         const string_args = arguments.nextEat() orelse {
             return globalThis.throw("shell_parse: expected 2 arguments, got 0", .{});
         };
@@ -4394,7 +4365,7 @@ pub const TestingAPIs = struct {
         callframe: *JSC.CallFrame,
     ) bun.JSError!JSC.JSValue {
         const arguments_ = callframe.arguments_old(2);
-        var arguments = JSC.Node.ArgumentsSlice.init(globalThis.bunVM(), arguments_.slice());
+        var arguments = JSC.CallFrame.ArgumentsSlice.init(globalThis.bunVM(), arguments_.slice());
         const string_args = arguments.nextEat() orelse {
             return globalThis.throw("shell_parse: expected 2 arguments, got 0", .{});
         };

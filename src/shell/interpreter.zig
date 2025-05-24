@@ -19,23 +19,20 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const string = []const u8;
-const bun = @import("root").bun;
+const bun = @import("bun");
 const posix = std.posix;
 const Arena = std.heap.ArenaAllocator;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const JSC = bun.JSC;
 const JSValue = bun.JSC.JSValue;
-const JSPromise = bun.JSC.JSPromise;
 const JSGlobalObject = bun.JSC.JSGlobalObject;
 const which = bun.which;
 const Braces = @import("./braces.zig");
 const Syscall = bun.sys;
 const Glob = @import("../glob.zig");
 const ResolvePath = bun.path;
-const DirIterator = bun.DirIterator;
 const TaggedPointerUnion = bun.TaggedPointerUnion;
-const TaggedPointer = bun.TaggedPointer;
 pub const WorkPoolTask = JSC.WorkPoolTask;
 pub const WorkPool = JSC.WorkPool;
 const windows = bun.windows;
@@ -45,7 +42,6 @@ const WTFStringImplStruct = @import("../string.zig").WTFStringImplStruct;
 
 const Pipe = [2]bun.FileDescriptor;
 const shell = bun.shell;
-const Token = shell.Token;
 const ShellError = shell.ShellError;
 const ast = shell.AST;
 const SmolList = shell.SmolList;
@@ -691,7 +687,7 @@ pub const Interpreter = struct {
     pub fn createShellInterpreter(globalThis: *JSC.JSGlobalObject, callframe: *JSC.CallFrame) bun.JSError!JSValue {
         const allocator = bun.default_allocator;
         const arguments_ = callframe.arguments_old(3);
-        var arguments = JSC.Node.ArgumentsSlice.init(globalThis.bunVM(), arguments_.slice());
+        var arguments = JSC.CallFrame.ArgumentsSlice.init(globalThis.bunVM(), arguments_.slice());
 
         const resolve = arguments.nextEat() orelse return globalThis.throw("shell: expected 3 arguments, got 0", .{});
 
@@ -1147,7 +1143,7 @@ pub const Interpreter = struct {
     fn ioToJSValue(globalThis: *JSGlobalObject, buf: *bun.ByteList) JSValue {
         const bytelist = buf.*;
         buf.* = .{};
-        const buffer: JSC.Buffer = .{
+        const buffer: JSC.Node.Buffer = .{
             .allocator = bun.default_allocator,
             .buffer = JSC.ArrayBuffer.fromBytes(@constCast(bytelist.slice()), .Uint8Array),
         };
@@ -4434,7 +4430,7 @@ pub const Interpreter = struct {
                         if (this.base.interpreter.jsobjs[val.idx].asArrayBuffer(global)) |buf| {
                             const stdio: bun.shell.subproc.Stdio = .{ .array_buffer = JSC.ArrayBuffer.Strong{
                                 .array_buffer = buf,
-                                .held = JSC.Strong.create(buf.value, global),
+                                .held = .create(buf.value, global),
                             } };
 
                             setStdioFromRedirect(&spawn_args.stdio, this.node.redirect, stdio);

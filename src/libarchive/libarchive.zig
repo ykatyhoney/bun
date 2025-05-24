@@ -1,20 +1,17 @@
 // @link "../deps/libarchive.a"
 
 pub const lib = @import("./libarchive-bindings.zig");
-const bun = @import("root").bun;
+const bun = @import("bun");
 const string = bun.string;
 const Output = bun.Output;
-const Global = bun.Global;
 const Environment = bun.Environment;
 const strings = bun.strings;
 const MutableString = bun.MutableString;
 const FileDescriptorType = bun.FileDescriptor;
-const stringZ = bun.stringZ;
 const default_allocator = bun.default_allocator;
-const C = bun.C;
+const c = bun.c;
 const std = @import("std");
 const Archive = lib.Archive;
-const JSC = bun.JSC;
 pub const Seek = enum(c_int) {
     set = std.posix.SEEK_SET,
     current = std.posix.SEEK_CUR,
@@ -186,7 +183,6 @@ pub const BufferReadStream = struct {
     // }
 };
 
-const Kind = std.fs.File.Kind;
 
 pub const Archiver = struct {
     // impl: *lib.archive = undefined,
@@ -370,7 +366,7 @@ pub const Archiver = struct {
                         }
                     }
 
-                    const kind = C.kindFromMode(entry.filetype());
+                    const kind = bun.sys.kindFromMode(entry.filetype());
 
                     if (options.npm) {
                         // - ignore entries other than files (`true` can only be returned if type is file)
@@ -406,9 +402,9 @@ pub const Archiver = struct {
                             remain = remain[2..];
                         }
 
-                        for (remain) |*c| {
-                            switch (c.*) {
-                                '|', '<', '>', '?', ':' => c.* += 0xf000,
+                        for (remain) |*char| {
+                            switch (char.*) {
+                                '|', '<', '>', '?', ':' => char.* += 0xf000,
                                 else => {},
                             }
                         }
@@ -476,8 +472,8 @@ pub const Archiver = struct {
                                 switch (bun.sys.openatWindows(.fromNative(dir_fd), path, flags, 0)) {
                                     .result => |fd| fd,
                                     .err => |e| switch (e.errno) {
-                                        @intFromEnum(bun.C.E.PERM),
-                                        @intFromEnum(bun.C.E.NOENT),
+                                        @intFromEnum(bun.sys.E.PERM),
+                                        @intFromEnum(bun.sys.E.NOENT),
                                         => brk: {
                                             bun.MakePath.makePath(u16, dir, bun.Dirname.dirname(u16, path_slice) orelse return bun.errnoToZigErr(e.errno)) catch {};
                                             break :brk try bun.sys.openatWindows(.fromNative(dir_fd), path, flags, 0).unwrap();
@@ -556,7 +552,7 @@ pub const Archiver = struct {
                                 // #define    MAX_WRITE    (1024 * 1024)
                                 if (comptime Environment.isLinux) {
                                     if (size > 1_000_000) {
-                                        C.preallocate_file(
+                                        bun.sys.preallocate_file(
                                             file_handle.cast(),
                                             0,
                                             @intCast(size),

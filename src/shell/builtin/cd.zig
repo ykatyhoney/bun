@@ -65,7 +65,7 @@ fn handleChangeCwdErr(this: *Cd, err: Syscall.Error, new_cwd_: []const u8) Maybe
     const errno: usize = @intCast(err.errno);
 
     switch (errno) {
-        @as(usize, @intFromEnum(bun.C.E.NOTDIR)) => {
+        @as(usize, @intFromEnum(Syscall.E.NOTDIR)) => {
             if (this.bltn().stderr.needsIO() == null) {
                 const buf = this.bltn().fmtErrorArena(.cd, "not a directory: {s}\n", .{new_cwd_});
                 _ = this.bltn().writeNoIO(.stderr, buf);
@@ -78,7 +78,7 @@ fn handleChangeCwdErr(this: *Cd, err: Syscall.Error, new_cwd_: []const u8) Maybe
             this.writeStderrNonBlocking("not a directory: {s}\n", .{new_cwd_});
             return Maybe(void).success;
         },
-        @as(usize, @intFromEnum(bun.C.E.NOENT)) => {
+        @as(usize, @intFromEnum(Syscall.E.NOENT)) => {
             if (this.bltn().stderr.needsIO() == null) {
                 const buf = this.bltn().fmtErrorArena(.cd, "not a directory: {s}\n", .{new_cwd_});
                 _ = this.bltn().writeNoIO(.stderr, buf);
@@ -122,29 +122,15 @@ pub fn deinit(this: *Cd) void {
 
 // --
 const log = bun.Output.scoped(.Cd, true);
-const bun = @import("root").bun;
+const bun = @import("bun");
 const shell = bun.shell;
 const interpreter = @import("../interpreter.zig");
 const Interpreter = interpreter.Interpreter;
 const Builtin = Interpreter.Builtin;
-const Result = Interpreter.Builtin.Result;
-const ParseError = interpreter.ParseError;
-const ParseFlagResult = interpreter.ParseFlagResult;
-const ExitCode = shell.ExitCode;
-const IOReader = shell.IOReader;
-const IOWriter = shell.IOWriter;
-const IO = shell.IO;
-const IOVector = shell.IOVector;
-const IOVectorSlice = shell.IOVectorSlice;
-const IOVectorSliceMut = shell.IOVectorSliceMut;
 const Cd = @This();
-const ReadChunkAction = interpreter.ReadChunkAction;
 const JSC = bun.JSC;
 const Maybe = bun.sys.Maybe;
 const std = @import("std");
-const FlagParser = interpreter.FlagParser;
 
-const ShellSyscall = interpreter.ShellSyscall;
-const unsupportedFlag = interpreter.unsupportedFlag;
 const Syscall = bun.sys;
 const assert = bun.assert;

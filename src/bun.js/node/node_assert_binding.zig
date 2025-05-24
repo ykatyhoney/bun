@@ -1,8 +1,7 @@
 const std = @import("std");
-const bun = @import("root").bun;
+const bun = @import("bun");
 const assert = @import("./node_assert.zig");
 const DiffList = @import("./assert/myers_diff.zig").DiffList;
-const Allocator = std.mem.Allocator;
 
 const JSC = bun.JSC;
 const JSValue = JSC.JSValue;

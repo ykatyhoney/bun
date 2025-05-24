@@ -1,5 +1,5 @@
 const std = @import("std");
-const bun = @import("root").bun;
+const bun = @import("bun");
 const MyersDiff = @import("./assert/myers_diff.zig");
 
 const Allocator = std.mem.Allocator;
@@ -8,7 +8,6 @@ const BunString = bun.String;
 const JSC = bun.JSC;
 const JSValue = JSC.JSValue;
 
-const StringDiffList = MyersDiff.DiffList([]const u8);
 
 /// Compare `actual` and `expected`, producing a diff that would turn `actual`
 /// into `expected`.

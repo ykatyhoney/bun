@@ -12,10 +12,9 @@
 /// Version 13: Hoist `import.meta.require` definition, see #15738
 const expected_version = 13;
 
-const bun = @import("root").bun;
+const bun = @import("bun");
 const std = @import("std");
 const Output = bun.Output;
-const JSC = bun.JSC;
 
 const debug = Output.scoped(.cache, false);
 const MINIMUM_CACHE_SIZE = 50 * 1024;
@@ -245,7 +244,7 @@ pub const RuntimeTranspilerCache = struct {
                 }
                 bun.assert(end_position == @as(i64, @intCast(sourcemap.len + output_bytes.len + Metadata.size)));
 
-                bun.C.preallocate_file(tmpfile.fd.cast(), 0, @intCast(end_position)) catch {};
+                bun.sys.preallocate_file(tmpfile.fd.cast(), 0, @intCast(end_position)) catch {};
                 while (position < end_position) {
                     const written = try bun.sys.pwritev(tmpfile.fd, vecs, position).unwrap();
                     if (written <= 0) {

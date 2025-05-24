@@ -1,24 +1,14 @@
 //! bun.sys.sys_uv is a polyfill of bun.sys but with libuv.
 //! TODO: Probably should merge this into bun.sys itself with isWindows checks
-const std = @import("std");
-const posix = std.posix;
-const bun = @import("root").bun;
+const bun = @import("bun");
 
 const assertIsValidWindowsPath = bun.strings.assertIsValidWindowsPath;
-const fd_t = bun.FileDescriptor;
-const default_allocator = bun.default_allocator;
-const kernel32 = bun.windows;
-const linux = posix.linux;
 const uv = bun.windows.libuv;
 
-const C = bun.C;
-const E = C.E;
 const Environment = bun.Environment;
 const FileDescriptor = bun.FileDescriptor;
 const JSC = bun.JSC;
-const MAX_PATH_BYTES = bun.MAX_PATH_BYTES;
 const Maybe = JSC.Maybe;
-const SystemError = JSC.SystemError;
 
 comptime {
     bun.assert(Environment.isWindows);
@@ -181,7 +171,7 @@ pub fn readlink(file_path: [:0]const u8, buf: []u8) Maybe([:0]u8) {
         const slice = bun.span(req.ptrAs([*:0]u8));
         if (slice.len > buf.len) {
             log("uv readlink({s}) = {d}, {s} TRUNCATED", .{ file_path, rc.int(), slice });
-            return .{ .err = .{ .errno = @intFromEnum(E.NOMEM), .syscall = .readlink, .path = file_path } };
+            return .{ .err = .{ .errno = @intFromEnum(bun.sys.E.NOMEM), .syscall = .readlink, .path = file_path } };
         }
         log("uv readlink({s}) = {d}, {s}", .{ file_path, rc.int(), slice });
         @memcpy(buf[0..slice.len], slice);

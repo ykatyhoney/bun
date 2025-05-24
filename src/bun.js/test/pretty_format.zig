@@ -1,5 +1,5 @@
 const std = @import("std");
-const bun = @import("root").bun;
+const bun = @import("bun");
 const Output = bun.Output;
 const JSC = bun.JSC;
 const JSGlobalObject = JSC.JSGlobalObject;
@@ -10,8 +10,6 @@ const ZigString = JSC.ZigString;
 const strings = bun.strings;
 const string = bun.string;
 const JSLexer = bun.js_lexer;
-const JSPrinter = bun.js_printer;
-const JSPrivateDataPtr = JSC.JSPrivateDataPtr;
 const JSPromise = JSC.JSPromise;
 const expect = @import("./expect.zig");
 
@@ -1106,7 +1104,7 @@ pub const JestPrettyFormat = struct {
                     var message_string = bun.String.empty;
                     defer message_string.deref();
 
-                    if (value.fastGet(this.globalThis, .message)) |message_prop| {
+                    if (try value.fastGet(this.globalThis, .message)) |message_prop| {
                         message_string = try message_prop.toBunString(this.globalThis);
                     }
 
@@ -1275,7 +1273,7 @@ pub const JestPrettyFormat = struct {
                             .Object,
                             enable_ansi_colors,
                         );
-                    } else if (value.as(JSC.API.Bun.Timer.TimeoutObject)) |timer| {
+                    } else if (value.as(bun.api.Timer.TimeoutObject)) |timer| {
                         this.addForNewLine("Timeout(# ) ".len + bun.fmt.fastDigitCount(@as(u64, @intCast(@max(timer.internals.id, 0)))));
                         if (timer.internals.flags.kind == .setInterval) {
                             this.addForNewLine("repeats ".len + bun.fmt.fastDigitCount(@as(u64, @intCast(@max(timer.internals.id, 0)))));
@@ -1289,17 +1287,17 @@ pub const JestPrettyFormat = struct {
                         }
 
                         return;
-                    } else if (value.as(JSC.API.Bun.Timer.ImmediateObject)) |immediate| {
+                    } else if (value.as(bun.api.Timer.ImmediateObject)) |immediate| {
                         this.addForNewLine("Immediate(# ) ".len + bun.fmt.fastDigitCount(@as(u64, @intCast(@max(immediate.internals.id, 0)))));
                         writer.print(comptime Output.prettyFmt("<r><blue>Immediate<r> <d>(#<yellow>{d}<r><d>)<r>", enable_ansi_colors), .{
                             immediate.internals.id,
                         });
 
                         return;
-                    } else if (value.as(JSC.BuildMessage)) |build_log| {
+                    } else if (value.as(bun.api.BuildMessage)) |build_log| {
                         build_log.msg.writeFormat(writer_, enable_ansi_colors) catch {};
                         return;
-                    } else if (value.as(JSC.ResolveMessage)) |resolve_log| {
+                    } else if (value.as(bun.api.ResolveMessage)) |resolve_log| {
                         resolve_log.msg.writeFormat(writer_, enable_ansi_colors) catch {};
                         return;
                     } else if (printAsymmetricMatcher(this, Format, &writer, writer_, name_buf, value, enable_ansi_colors)) {
@@ -1459,7 +1457,7 @@ pub const JestPrettyFormat = struct {
                             },
                         );
 
-                        if (value.fastGet(this.globalThis, .message)) |message_value| {
+                        if (try value.fastGet(this.globalThis, .message)) |message_value| {
                             if (message_value.isString()) {
                                 this.writeIndent(Writer, writer_) catch unreachable;
                                 writer.print(
@@ -1480,7 +1478,7 @@ pub const JestPrettyFormat = struct {
                                     comptime Output.prettyFmt("<r><blue>data<d>:<r> ", enable_ansi_colors),
                                     .{},
                                 );
-                                const data = value.fastGet(this.globalThis, .data) orelse JSValue.undefined;
+                                const data = (try value.fastGet(this.globalThis, .data)) orelse JSValue.undefined;
                                 const tag = Tag.get(data, this.globalThis);
 
                                 if (tag.cell.isStringLike()) {
@@ -1491,7 +1489,7 @@ pub const JestPrettyFormat = struct {
                                 writer.writeAll(", \n");
                             },
                             .ErrorEvent => {
-                                if (value.fastGet(this.globalThis, .@"error")) |data| {
+                                if (try value.fastGet(this.globalThis, .@"error")) |data| {
                                     this.writeIndent(Writer, writer_) catch unreachable;
                                     writer.print(
                                         comptime Output.prettyFmt("<r><blue>error<d>:<r> ", enable_ansi_colors),

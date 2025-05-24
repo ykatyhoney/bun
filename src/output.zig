@@ -1,4 +1,4 @@
-const bun = @import("root").bun;
+const bun = @import("bun");
 const std = @import("std");
 const Environment = @import("./env.zig");
 const string = bun.string;
@@ -8,8 +8,7 @@ const StringTypes = bun.StringTypes;
 const Global = bun.Global;
 const ComptimeStringMap = bun.ComptimeStringMap;
 const use_mimalloc = bun.use_mimalloc;
-const writeStream = std.json.writeStream;
-const WriteStream = std.json.WriteStream;
+const c = bun.c;
 
 const SystemTimer = @import("./system_timer.zig").Timer;
 
@@ -170,15 +169,15 @@ pub const Source = struct {
             const handles = &.{ &stdin, &stdout, &stderr };
             inline for (console_mode, handles) |mode, handle| {
                 if (mode) |m| {
-                    _ = w.SetConsoleMode(handle.*, m);
+                    _ = c.SetConsoleMode(handle.*, m);
                 }
             }
 
             if (console_output_codepage != 0)
-                _ = w.kernel32.SetConsoleOutputCP(console_output_codepage);
+                _ = c.SetConsoleOutputCP(console_output_codepage);
 
             if (console_codepage != 0)
-                _ = w.SetConsoleCP(console_codepage);
+                _ = c.SetConsoleCP(console_codepage);
         }
 
         pub fn init() void {
@@ -199,14 +198,14 @@ pub const Source = struct {
 
             // https://learn.microsoft.com/en-us/windows/console/setconsoleoutputcp
             const CP_UTF8 = 65001;
-            console_output_codepage = w.kernel32.GetConsoleOutputCP();
-            _ = w.kernel32.SetConsoleOutputCP(CP_UTF8);
+            console_output_codepage = c.GetConsoleOutputCP();
+            _ = c.SetConsoleOutputCP(CP_UTF8);
 
-            console_codepage = w.kernel32.GetConsoleOutputCP();
-            _ = w.SetConsoleCP(CP_UTF8);
+            console_codepage = c.GetConsoleOutputCP();
+            _ = c.SetConsoleCP(CP_UTF8);
 
             var mode: w.DWORD = undefined;
-            if (w.kernel32.GetConsoleMode(stdin, &mode) != 0) {
+            if (c.GetConsoleMode(stdin, &mode) != 0) {
                 console_mode[0] = mode;
                 bun_stdio_tty[0] = 1;
                 // There are no flags to set on standard in, but just in case something
@@ -216,16 +215,16 @@ pub const Source = struct {
                 // intentionally set for any purpose, and instead only caused problems.
             }
 
-            if (w.kernel32.GetConsoleMode(stdout, &mode) != 0) {
+            if (c.GetConsoleMode(stdout, &mode) != 0) {
                 console_mode[1] = mode;
                 bun_stdio_tty[1] = 1;
-                _ = w.SetConsoleMode(stdout, w.ENABLE_PROCESSED_OUTPUT | std.os.windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING | w.ENABLE_WRAP_AT_EOL_OUTPUT | mode);
+                _ = c.SetConsoleMode(stdout, w.ENABLE_PROCESSED_OUTPUT | std.os.windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING | w.ENABLE_WRAP_AT_EOL_OUTPUT | mode);
             }
 
-            if (w.kernel32.GetConsoleMode(stderr, &mode) != 0) {
+            if (c.GetConsoleMode(stderr, &mode) != 0) {
                 console_mode[2] = mode;
                 bun_stdio_tty[2] = 1;
-                _ = w.SetConsoleMode(stderr, w.ENABLE_PROCESSED_OUTPUT | std.os.windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING | w.ENABLE_WRAP_AT_EOL_OUTPUT | mode);
+                _ = c.SetConsoleMode(stderr, w.ENABLE_PROCESSED_OUTPUT | std.os.windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING | w.ENABLE_WRAP_AT_EOL_OUTPUT | mode);
             }
         }
     };
@@ -245,8 +244,9 @@ pub const Source = struct {
             return bun_is_stdio_null[0] == 1;
         }
 
+        pub extern "c" fn bun_initialize_process() void;
         pub fn init() void {
-            bun.C.bun_initialize_process();
+            bun_initialize_process();
 
             if (Environment.isWindows) {
                 WindowsStdio.init();
@@ -263,11 +263,12 @@ pub const Source = struct {
             }
         }
 
+        pub extern "c" fn bun_restore_stdio() void;
         pub fn restore() void {
             if (Environment.isWindows) {
                 WindowsStdio.restore();
             } else {
-                bun.C.bun_restore_stdio();
+                bun_restore_stdio();
             }
         }
     };
@@ -736,32 +737,35 @@ fn ScopedLogger(comptime tagname: []const u8, comptime disabled: bool) type {
         var buffered_writer: BufferedWriter = undefined;
         var out: BufferedWriter.Writer = undefined;
         var out_set = false;
-        var really_disable = disabled;
-        var evaluated_disable = false;
+        var really_disable = std.atomic.Value(bool).init(disabled);
+
         var lock = bun.Mutex{};
 
-        pub fn isVisible() bool {
-            if (!evaluated_disable) {
-                evaluated_disable = true;
-                if (bun.getenvZAnyCase("BUN_DEBUG_" ++ tagname)) |val| {
-                    really_disable = strings.eqlComptime(val, "0");
-                } else if (bun.getenvZAnyCase("BUN_DEBUG_ALL")) |val| {
-                    really_disable = strings.eqlComptime(val, "0");
-                } else if (bun.getenvZAnyCase("BUN_DEBUG_QUIET_LOGS")) |val| {
-                    really_disable = really_disable or !strings.eqlComptime(val, "0");
-                } else {
-                    for (bun.argv) |arg| {
-                        if (strings.eqlCaseInsensitiveASCII(arg, comptime "--debug-" ++ tagname, true)) {
-                            really_disable = false;
-                            break;
-                        } else if (strings.eqlCaseInsensitiveASCII(arg, comptime "--debug-all", true)) {
-                            really_disable = false;
-                            break;
-                        }
+        var is_visible_once = std.once(evaluateIsVisible);
+
+        fn evaluateIsVisible() void {
+            if (bun.getenvZAnyCase("BUN_DEBUG_" ++ tagname)) |val| {
+                really_disable.store(strings.eqlComptime(val, "0"), .monotonic);
+            } else if (bun.getenvZAnyCase("BUN_DEBUG_ALL")) |val| {
+                really_disable.store(strings.eqlComptime(val, "0"), .monotonic);
+            } else if (bun.getenvZAnyCase("BUN_DEBUG_QUIET_LOGS")) |val| {
+                really_disable.store(really_disable.load(.monotonic) or !strings.eqlComptime(val, "0"), .monotonic);
+            } else {
+                for (bun.argv) |arg| {
+                    if (strings.eqlCaseInsensitiveASCII(arg, comptime "--debug-" ++ tagname, true)) {
+                        really_disable.store(false, .monotonic);
+                        break;
+                    } else if (strings.eqlCaseInsensitiveASCII(arg, comptime "--debug-all", true)) {
+                        really_disable.store(false, .monotonic);
+                        break;
                     }
                 }
             }
-            return !really_disable;
+        }
+
+        pub fn isVisible() bool {
+            is_visible_once.call();
+            return !really_disable.load(.monotonic);
         }
 
         /// Debug-only logs which should not appear in release mode
@@ -804,20 +808,20 @@ fn ScopedLogger(comptime tagname: []const u8, comptime disabled: bool) type {
 
             if (enable_ansi_colors_stdout and source_set and buffered_writer.unbuffered_writer.context.handle == writer().context.handle) {
                 out.print(comptime prettyFmt("<r><d>[" ++ tagname ++ "]<r> " ++ fmt, true), args) catch {
-                    really_disable = true;
+                    really_disable.store(true, .monotonic);
                     return;
                 };
                 buffered_writer.flush() catch {
-                    really_disable = true;
+                    really_disable.store(true, .monotonic);
                     return;
                 };
             } else {
                 out.print(comptime prettyFmt("<r><d>[" ++ tagname ++ "]<r> " ++ fmt, false), args) catch {
-                    really_disable = true;
+                    really_disable.store(true, .monotonic);
                     return;
                 };
                 buffered_writer.flush() catch {
-                    really_disable = true;
+                    really_disable.store(true, .monotonic);
                     return;
                 };
             }
@@ -859,6 +863,7 @@ pub const color_map = ComptimeStringMap(string, .{
     &.{ "b", CSI ++ "1m" },
     &.{ "d", CSI ++ "2m" },
     &.{ "i", CSI ++ "3m" },
+    &.{ "u", CSI ++ "4m" },
     &.{ "black", CSI ++ "30m" },
     &.{ "red", CSI ++ "31m" },
     &.{ "green", CSI ++ "32m" },
@@ -881,8 +886,7 @@ pub fn prettyFmt(comptime fmt: string, comptime is_enabled: bool) [:0]const u8 {
     @setEvalBranchQuota(9999);
     comptime var i: usize = 0;
     comptime while (i < fmt.len) {
-        const c = fmt[i];
-        switch (c) {
+        switch (fmt[i]) {
             '\\' => {
                 i += 1;
                 if (i < fmt.len) {
@@ -1155,7 +1159,7 @@ pub inline fn err(error_name: anytype, comptime fmt: []const u8, args: anytype) 
 
         // enums
         if (info == .@"enum") {
-            const errno: bun.C.SystemErrno = @enumFromInt(@intFromEnum(info));
+            const errno: bun.sys.SystemErrno = @enumFromInt(@intFromEnum(info));
             break :display_name .{ @tagName(errno), false };
         }
 

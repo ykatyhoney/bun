@@ -1,37 +1,24 @@
-const bun = @import("root").bun;
+const bun = @import("bun");
 const string = bun.string;
 const Output = bun.Output;
 const Global = bun.Global;
 const Environment = bun.Environment;
 const strings = bun.strings;
 const MutableString = bun.MutableString;
-const stringZ = bun.stringZ;
 const default_allocator = bun.default_allocator;
-const C = bun.C;
-const std = @import("std");
-const OOM = bun.OOM;
 
-const lex = bun.js_lexer;
-const logger = bun.logger;
+const std = @import("std");
+
 
 const FileSystem = @import("../fs.zig").FileSystem;
-const PathName = @import("../fs.zig").PathName;
 const options = @import("../options.zig");
-const js_parser = bun.js_parser;
-const json_parser = bun.JSON;
-const js_printer = bun.js_printer;
 const js_ast = bun.JSAst;
-const linker = @import("../linker.zig");
 
-const sync = @import("../sync.zig");
-const Api = @import("../api/schema.zig").Api;
 const resolve_path = @import("../resolver/resolve_path.zig");
-const configureTransformOptionsForBun = @import("../bun.js/config.zig").configureTransformOptionsForBun;
 const Command = @import("../cli.zig").Command;
 
 const DotEnv = @import("../env_loader.zig");
 const which = @import("../which.zig").which;
-const Run = @import("../bun_js.zig").Run;
 var path_buf: bun.PathBuffer = undefined;
 var path_buf2: bun.PathBuffer = undefined;
 const PathString = bun.PathString;
@@ -823,7 +810,7 @@ pub const CommandLineReporter = struct {
             if (comptime !reporters.lcov) break :brk .{ {}, {}, {}, {} };
 
             // Ensure the directory exists
-            var fs = bun.JSC.Node.NodeFS{};
+            var fs = bun.JSC.Node.fs.NodeFS{};
             _ = fs.mkdirRecursive(
                 .{
                     .path = bun.JSC.Node.PathLike{
@@ -944,7 +931,7 @@ pub const CommandLineReporter = struct {
             try lcov_buffered_writer.flush();
             lcov_file.close();
             const cwd = bun.FD.cwd();
-            bun.C.moveFileZ(
+            bun.sys.moveFileZ(
                 cwd,
                 lcov_name,
                 cwd,
@@ -1045,7 +1032,7 @@ pub const TestCommand = struct {
         var snapshot_values = Snapshots.ValuesHashMap.init(ctx.allocator);
         var snapshot_counts = bun.StringHashMap(usize).init(ctx.allocator);
         var inline_snapshots_to_write = std.AutoArrayHashMap(TestRunner.File.ID, std.ArrayList(Snapshots.InlineSnapshotToWrite)).init(ctx.allocator);
-        JSC.isBunTest = true;
+        JSC.VirtualMachine.isBunTest = true;
 
         var reporter = try ctx.allocator.create(CommandLineReporter);
         reporter.* = CommandLineReporter{
@@ -1106,7 +1093,7 @@ pub const TestCommand = struct {
                 .smol = ctx.runtime_options.smol,
                 .debugger = ctx.runtime_options.debugger,
                 .is_main_thread = true,
-                .destruct_main_thread_on_exit = bun.getRuntimeFeatureFlag("BUN_DESTRUCT_VM_ON_EXIT"),
+                .destruct_main_thread_on_exit = bun.getRuntimeFeatureFlag(.BUN_DESTRUCT_VM_ON_EXIT),
             },
         );
         vm.argv = ctx.passthrough;
@@ -1228,8 +1215,8 @@ pub const TestCommand = struct {
             vm.hot_reload = ctx.debug.hot_reload;
 
             switch (vm.hot_reload) {
-                .hot => JSC.HotReloader.enableHotModuleReloading(vm),
-                .watch => JSC.WatchReloader.enableHotModuleReloading(vm),
+                .hot => JSC.hot_reloader.HotReloader.enableHotModuleReloading(vm),
+                .watch => JSC.hot_reloader.WatchReloader.enableHotModuleReloading(vm),
                 else => {},
             }
 

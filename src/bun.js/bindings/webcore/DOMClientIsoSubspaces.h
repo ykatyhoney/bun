@@ -35,7 +35,10 @@ public:
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForNapiExternal;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForRequireResolveFunction;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForBundlerPlugin;
+    std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForNodeVMGlobalObject;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForNodeVMScript;
+    std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForNodeVMSourceTextModule;
+    std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForNodeVMSyntheticModule;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForJSCommonJSModule;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForJSCommonJSExtensions;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForJSMockImplementation;
@@ -57,12 +60,13 @@ public:
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForNapiTypeTag;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForObjectTemplate;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForInternalFieldObject;
+    std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForJSMIMEType;
+    std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForJSMIMEParams;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForV8GlobalInternals;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForHandleScopeBuffer;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForFunctionTemplate;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForV8Function;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForJSNodeHTTPServerSocket;
-    std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForNodeVMGlobalObject;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForJSS3Bucket;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForJSS3File;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForJSX509Certificate;
@@ -75,7 +79,7 @@ public:
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForDOMURL;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForURLSearchParams;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForURLSearchParamsIterator;
-    
+
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForCookie;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForCookieMap;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForCookieMapIterator;
@@ -933,6 +937,10 @@ public:
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForJSHmac;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForJSHash;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForJSCipher;
+    std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForJSKeyObject;
+    std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForJSSecretKeyObject;
+    std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForJSPublicKeyObject;
+    std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForJSPrivateKeyObject;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForServerRouteList;
     std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceForBunRequest;
 };

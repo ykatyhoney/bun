@@ -1,20 +1,8 @@
 const std = @import("std");
 pub const css = @import("../css_parser.zig");
-const bun = @import("root").bun;
 const ArrayList = std.ArrayListUnmanaged;
-const MediaList = css.MediaList;
-const CustomMedia = css.CustomMedia;
 const Printer = css.Printer;
-const Maybe = css.Maybe;
-const PrinterError = css.PrinterError;
 const PrintErr = css.PrintErr;
-const Dependency = css.Dependency;
-const dependencies = css.dependencies;
-const Url = css.css_values.url.Url;
-const Size2D = css.css_values.size.Size2D;
-const fontprops = css.css_properties.font;
-const LayerName = css.css_rules.layer.LayerName;
-const SupportsCondition = css.css_rules.supports.SupportsCondition;
 const Location = css.css_rules.Location;
 
 pub fn StyleRule(comptime R: type) type {
@@ -58,7 +46,7 @@ pub fn StyleRule(comptime R: type) type {
 
         pub fn updatePrefix(this: *This, context: *css.MinifyContext) void {
             this.vendor_prefix = css.selector.getPrefix(&this.selectors);
-            if (this.vendor_prefix.contains(css.VendorPrefix{ .none = true }) and
+            if (this.vendor_prefix.none and
                 context.targets.shouldCompileSelectors())
             {
                 this.vendor_prefix = css.selector.downlevelSelectors(context.allocator, this.selectors.v.slice_mut(), context.targets.*);
@@ -91,7 +79,7 @@ pub fn StyleRule(comptime R: type) type {
                     }
                 }
 
-                dest.vendor_prefix = css.VendorPrefix.empty();
+                dest.vendor_prefix = .{};
             }
         }
 

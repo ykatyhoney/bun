@@ -1,13 +1,10 @@
-const bun = @import("root").bun;
+const bun = @import("bun");
 const std = @import("std");
 
 const string = bun.string;
 const stringZ = bun.stringZ;
 const Output = bun.Output;
 const Global = bun.Global;
-const Environment = bun.Environment;
-const strings = bun.strings;
-const MutableString = bun.MutableString;
 const Progress = bun.Progress;
 const String = bun.Semver.String;
 
@@ -445,7 +442,7 @@ pub const PatchTask = struct {
 
         const stat: bun.Stat = switch (bun.sys.stat(absolute_patchfile_path)) {
             .err => |e| {
-                if (e.getErrno() == bun.C.E.NOENT) {
+                if (e.getErrno() == .NOENT) {
                     const fmt = "\n\n<r><red>error<r>: could not find patch file <b>{s}<r>\n\nPlease make sure it exists.\n\nTo create a new patch file run:\n\n  <cyan>bun patch {s}<r>\n";
                     const args = .{
                         this.callback.calc_hash.patchfile_path,

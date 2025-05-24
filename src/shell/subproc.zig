@@ -1,24 +1,17 @@
 const default_allocator = bun.default_allocator;
-const bun = @import("root").bun;
+const bun = @import("bun");
 const Environment = bun.Environment;
-const NetworkThread = bun.http.NetworkThread;
-const Global = bun.Global;
 const strings = bun.strings;
-const string = bun.string;
 const Output = bun.Output;
-const MutableString = bun.MutableString;
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const JSC = bun.JSC;
 const JSValue = JSC.JSValue;
 const JSGlobalObject = JSC.JSGlobalObject;
-const Which = bun.which;
-const Async = bun.Async;
 // const IPC = @import("../bun.js/ipc.zig");
 const uws = bun.uws;
 const sh = bun.shell;
 
-const PosixSpawn = bun.spawn;
 
 const util = @import("./util.zig");
 
@@ -261,7 +254,7 @@ pub const ShellSubprocess = struct {
                         subprocess.weak_file_sink_stdin_ptr = pipe;
                         return pipe.toJSWithDestructor(
                             globalThis,
-                            JSC.WebCore.SinkDestructor.Ptr.init(subprocess),
+                            JSC.WebCore.sink_destructor.Ptr.init(subprocess),
                         );
                     }
                 },
@@ -877,7 +870,7 @@ pub const ShellSubprocess = struct {
         subprocess.process.setExitHandler(subprocess);
 
         if (subprocess.stdin == .pipe) {
-            subprocess.stdin.pipe.signal = JSC.WebCore.Signal.init(&subprocess.stdin);
+            subprocess.stdin.pipe.signal = bun.webcore.streams.Signal.init(&subprocess.stdin);
         }
 
         if (comptime !is_sync) {
@@ -950,7 +943,6 @@ pub const ShellSubprocess = struct {
     }
 };
 
-const WaiterThread = bun.spawn.WaiterThread;
 
 pub const PipeReader = struct {
     const RefCount = bun.ptr.RefCount(@This(), "ref_count", deinit, .{});

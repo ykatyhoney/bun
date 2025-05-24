@@ -1,17 +1,16 @@
-const bun = @import("root").bun;
+const bun = @import("bun");
 const JSParser = bun.js_parser;
 const JSPrinter = bun.js_printer;
 const JSAst = bun.JSAst;
 const Api = @import("./api/schema.zig").Api;
 const Logger = bun.logger;
-const global = @import("root").bun;
+const global = @import("bun");
 const default_allocator = global.default_allocator;
 const std = @import("std");
 const Define = @import("./defines.zig");
 const Options = @import("./options.zig");
 const ApiWriter = @import("./api/schema.zig").Writer;
 const ApiReader = @import("./api/schema.zig").Reader;
-const ImportKind = @import("./import_record.zig").ImportKind;
 const Output = global.Output;
 
 export var code_buffer_ptr: ?[*]const u8 = null;

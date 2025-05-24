@@ -1,7 +1,6 @@
 const std = @import("std");
-const bun = @import("root").bun;
+const bun = @import("bun");
 const JSC = bun.JSC;
-const picohttp = JSC.WebCore.picohttp;
 const S3Error = @import("./error.zig").S3Error;
 const S3Credentials = @import("./credentials.zig").S3Credentials;
 const SignResult = S3Credentials.SignResult;
@@ -13,7 +12,7 @@ pub const S3HttpDownloadStreamingTask = struct {
     http: bun.http.AsyncHTTP,
     vm: *JSC.VirtualMachine,
     sign_result: SignResult,
-    headers: JSC.WebCore.Headers,
+    headers: bun.http.Headers,
     callback_context: *anyopaque,
     // this transfers ownership from the chunk
     callback: *const fn (chunk: bun.MutableString, has_more: bool, err: ?S3Error, *anyopaque) void,

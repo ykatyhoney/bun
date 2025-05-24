@@ -4,14 +4,14 @@ pub const JSValkeyClient = struct {
     globalObject: *JSC.JSGlobalObject,
     this_value: JSC.JSRef = JSC.JSRef.empty(),
     poll_ref: bun.Async.KeepAlive = .{},
-    timer: JSC.BunTimer.EventLoopTimer = .{
+    timer: Timer.EventLoopTimer = .{
         .tag = .ValkeyConnectionTimeout,
         .next = .{
             .sec = 0,
             .nsec = 0,
         },
     },
-    reconnect_timer: JSC.BunTimer.EventLoopTimer = .{
+    reconnect_timer: Timer.EventLoopTimer = .{
         .tag = .ValkeyConnectionReconnect,
         .next = .{
             .sec = 0,
@@ -173,7 +173,7 @@ pub const JSValkeyClient = struct {
         }
 
         const promise_ptr = JSC.JSPromise.create(globalObject);
-        const promise = promise_ptr.asValue(globalObject);
+        const promise = promise_ptr.toJS();
         js.connectionPromiseSetCached(this_value, globalObject, promise);
 
         // If was manually closed, reset that flag
@@ -186,7 +186,7 @@ pub const JSValkeyClient = struct {
             this.connect() catch |err| {
                 this.poll_ref.unref(this.client.vm);
                 this.client.flags.needs_to_open_socket = true;
-                const err_value = globalObject.ERR_SOCKET_CLOSED_BEFORE_CONNECTION(" {s} connecting to Valkey", .{@errorName(err)}).toJS();
+                const err_value = globalObject.ERR(.SOCKET_CLOSED_BEFORE_CONNECTION, " {s} connecting to Valkey", .{@errorName(err)}).toJS();
                 promise_ptr.reject(globalObject, err_value);
                 return promise;
             };
@@ -232,9 +232,8 @@ pub const JSValkeyClient = struct {
         return .undefined;
     }
 
-    pub fn setOnConnect(_: *JSValkeyClient, thisValue: JSValue, globalObject: *JSC.JSGlobalObject, value: JSValue) bool {
+    pub fn setOnConnect(_: *JSValkeyClient, thisValue: JSValue, globalObject: *JSC.JSGlobalObject, value: JSValue) void {
         js.onconnectSetCached(thisValue, globalObject, value);
-        return true;
     }
 
     pub fn getOnClose(_: *JSValkeyClient, thisValue: JSValue, _: *JSC.JSGlobalObject) JSValue {
@@ -244,13 +243,12 @@ pub const JSValkeyClient = struct {
         return .undefined;
     }
 
-    pub fn setOnClose(_: *JSValkeyClient, thisValue: JSValue, globalObject: *JSC.JSGlobalObject, value: JSValue) bool {
+    pub fn setOnClose(_: *JSValkeyClient, thisValue: JSValue, globalObject: *JSC.JSGlobalObject, value: JSValue) void {
         js.oncloseSetCached(thisValue, globalObject, value);
-        return true;
     }
 
     /// Safely add a timer with proper reference counting and event loop keepalive
-    fn addTimer(this: *JSValkeyClient, timer: *JSC.BunTimer.EventLoopTimer, next_timeout_ms: u32) void {
+    fn addTimer(this: *JSValkeyClient, timer: *Timer.EventLoopTimer, next_timeout_ms: u32) void {
         this.ref();
         defer this.deref();
 
@@ -274,7 +272,7 @@ pub const JSValkeyClient = struct {
     }
 
     /// Safely remove a timer with proper reference counting and event loop keepalive
-    fn removeTimer(this: *JSValkeyClient, timer: *JSC.BunTimer.EventLoopTimer) void {
+    fn removeTimer(this: *JSValkeyClient, timer: *Timer.EventLoopTimer) void {
         if (timer.state == .ACTIVE) {
 
             // Store VM reference to use later
@@ -309,7 +307,7 @@ pub const JSValkeyClient = struct {
         this.timer.state = .CANCELLED;
     }
 
-    pub fn onConnectionTimeout(this: *JSValkeyClient) JSC.BunTimer.EventLoopTimer.Arm {
+    pub fn onConnectionTimeout(this: *JSValkeyClient) Timer.EventLoopTimer.Arm {
         debug("onConnectionTimeout", .{});
 
         // Mark timer as fired
@@ -342,7 +340,7 @@ pub const JSValkeyClient = struct {
         return .disarm;
     }
 
-    pub fn onReconnectTimer(this: *JSValkeyClient) JSC.BunTimer.EventLoopTimer.Arm {
+    pub fn onReconnectTimer(this: *JSValkeyClient) Timer.EventLoopTimer.Arm {
         debug("Reconnect timer fired, attempting to reconnect", .{});
 
         // Mark timer as fired and store important values before doing any derefs
@@ -385,7 +383,7 @@ pub const JSValkeyClient = struct {
         this.poll_ref.ref(vm);
 
         this.connect() catch |err| {
-            this.failWithJSValue(this.globalObject.ERR_SOCKET_CLOSED_BEFORE_CONNECTION("{s} reconnecting", .{@errorName(err)}).toJS());
+            this.failWithJSValue(this.globalObject.ERR(.SOCKET_CLOSED_BEFORE_CONNECTION, "{s} reconnecting", .{@errorName(err)}).toJS());
             this.poll_ref.disable();
             return;
         };
@@ -534,8 +532,7 @@ pub const JSValkeyClient = struct {
                 .none => .{
                     vm.rareData().valkey_context.tcp orelse brk_ctx: {
                         // TCP socket
-                        var err: uws.create_bun_socket_error_t = .none;
-                        const ctx_ = uws.us_create_bun_socket_context(0, vm.uwsLoop(), @sizeOf(*JSValkeyClient), uws.us_bun_socket_context_options_t{}, &err).?;
+                        const ctx_ = uws.us_create_bun_nossl_socket_context(vm.uwsLoop(), @sizeOf(*JSValkeyClient)).?;
                         uws.NewSocketHandler(false).configure(ctx_, true, *JSValkeyClient, SocketHandler(false));
                         vm.rareData().valkey_context.tcp = ctx_;
                         break :brk_ctx ctx_;
@@ -546,7 +543,7 @@ pub const JSValkeyClient = struct {
                     vm.rareData().valkey_context.tls orelse brk_ctx: {
                         // TLS socket, default config
                         var err: uws.create_bun_socket_error_t = .none;
-                        const ctx_ = uws.us_create_bun_socket_context(1, vm.uwsLoop(), @sizeOf(*JSValkeyClient), uws.us_bun_socket_context_options_t{}, &err).?;
+                        const ctx_ = uws.us_create_bun_ssl_socket_context(vm.uwsLoop(), @sizeOf(*JSValkeyClient), uws.us_bun_socket_context_options_t{}, &err).?;
                         uws.NewSocketHandler(true).configure(ctx_, true, *JSValkeyClient, SocketHandler(true));
                         vm.rareData().valkey_context.tls = ctx_;
                         break :brk_ctx ctx_;
@@ -557,7 +554,7 @@ pub const JSValkeyClient = struct {
                     // TLS socket, custom config
                     var err: uws.create_bun_socket_error_t = .none;
                     const options = custom.asUSockets();
-                    const ctx_ = uws.us_create_bun_socket_context(1, vm.uwsLoop(), @sizeOf(*JSValkeyClient), options, &err).?;
+                    const ctx_ = uws.us_create_bun_ssl_socket_context(vm.uwsLoop(), @sizeOf(*JSValkeyClient), options, &err).?;
                     uws.NewSocketHandler(true).configure(ctx_, true, *JSValkeyClient, SocketHandler(true));
                     break :brk_ctx .{ ctx_, true };
                 },
@@ -582,7 +579,7 @@ pub const JSValkeyClient = struct {
 
             this.connect() catch |err| {
                 this.client.flags.needs_to_open_socket = true;
-                const err_value = globalThis.ERR_SOCKET_CLOSED_BEFORE_CONNECTION(" {s} connecting to Valkey", .{@errorName(err)}).toJS();
+                const err_value = globalThis.ERR(.SOCKET_CLOSED_BEFORE_CONNECTION, " {s} connecting to Valkey", .{@errorName(err)}).toJS();
                 const promise = JSC.JSPromise.create(globalThis);
                 promise.reject(globalThis, err_value);
                 return promise;
@@ -651,6 +648,7 @@ pub const JSValkeyClient = struct {
     pub const expire = fns.expire;
     pub const expiretime = fns.expiretime;
     pub const get = fns.get;
+    pub const getBuffer = fns.getBuffer;
     pub const getdel = fns.getdel;
     pub const getex = fns.getex;
     pub const getset = fns.getset;
@@ -810,7 +808,7 @@ fn SocketHandler(comptime ssl: bool) type {
 const Options = struct {
     pub fn fromJS(globalObject: *JSC.JSGlobalObject, options_obj: JSC.JSValue) !valkey.Options {
         var this = valkey.Options{
-            .enable_auto_pipelining = !bun.getRuntimeFeatureFlag("BUN_FEATURE_FLAG_DISABLE_REDIS_AUTO_PIPELINING"),
+            .enable_auto_pipelining = !bun.getRuntimeFeatureFlag(.BUN_FEATURE_FLAG_DISABLE_REDIS_AUTO_PIPELINING),
         };
 
         if (try options_obj.getOptionalInt(globalObject, "idleTimeout", u32)) |idle_timeout| {
@@ -856,7 +854,7 @@ const Options = struct {
 };
 
 const std = @import("std");
-const bun = @import("root").bun;
+const bun = @import("bun");
 const valkey = @import("valkey.zig");
 const protocol = @import("valkey_protocol.zig");
 const JSC = bun.JSC;
@@ -869,3 +867,5 @@ const Socket = uws.AnySocket;
 const RedisError = protocol.RedisError;
 const Command = @import("ValkeyCommand.zig");
 const BoringSSL = bun.BoringSSL;
+
+const Timer = bun.api.Timer;

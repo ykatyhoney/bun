@@ -1,16 +1,11 @@
-const Allocator = std.mem.Allocator;
-const uws = bun.uws;
 const std = @import("std");
 const default_allocator = bun.default_allocator;
-const bun = @import("root").bun;
+const bun = @import("bun");
 const Environment = bun.Environment;
-const Async = bun.Async;
 const JSC = bun.JSC;
 const JSValue = JSC.JSValue;
 const JSGlobalObject = JSC.JSGlobalObject;
-const posix = std.posix;
 const Output = bun.Output;
-const os = std.os;
 
 const uv = bun.windows.libuv;
 pub const Stdio = union(enum) {
@@ -23,7 +18,7 @@ pub const Stdio = union(enum) {
         to: bun.JSC.Subprocess.StdioKind,
     },
     path: JSC.Node.PathLike,
-    blob: JSC.WebCore.AnyBlob,
+    blob: JSC.WebCore.Blob.Any,
     array_buffer: JSC.ArrayBuffer.Strong,
     memfd: bun.FileDescriptor,
     pipe,
@@ -47,7 +42,7 @@ pub const Stdio = union(enum) {
         stdin_used_as_out,
         out_used_as_stdin,
         blob_used_as_out,
-        uv_pipe: bun.C.E,
+        uv_pipe: bun.sys.E,
 
         pub fn toStr(this: *const @This()) []const u8 {
             return switch (this.*) {
@@ -100,9 +95,9 @@ pub const Stdio = union(enum) {
         };
     }
 
-    pub fn useMemfd(this: *@This(), index: u32) void {
+    pub fn useMemfd(this: *@This(), index: u32) bool {
         if (comptime !Environment.isLinux) {
-            return;
+            return false;
         }
         const label = switch (index) {
             0 => "spawn_stdio_stdin",
@@ -111,7 +106,7 @@ pub const Stdio = union(enum) {
             else => "spawn_stdio_memory_file",
         };
 
-        const fd = bun.sys.memfd_create(label, 0).unwrap() catch return;
+        const fd = bun.sys.memfd_create(label, 0).unwrap() catch return false;
 
         var remain = this.byteSlice();
 
@@ -130,13 +125,13 @@ pub const Stdio = union(enum) {
 
                     Output.debugWarn("Failed to write to memfd: {s}", .{@tagName(err.getErrno())});
                     fd.close();
-                    return;
+                    return false;
                 },
                 .result => |result| {
                     if (result == 0) {
                         Output.debugWarn("Failed to write to memfd: EOF", .{});
                         fd.close();
-                        return;
+                        return false;
                     }
                     written += @intCast(result);
                     remain = remain[result..];
@@ -151,6 +146,7 @@ pub const Stdio = union(enum) {
         }
 
         this.* = .{ .memfd = fd };
+        return true;
     }
 
     fn toPosix(
@@ -391,7 +387,7 @@ pub const Stdio = union(enum) {
             out_stdio.* = .{
                 .array_buffer = JSC.ArrayBuffer.Strong{
                     .array_buffer = array_buffer,
-                    .held = JSC.Strong.create(array_buffer.value, globalThis),
+                    .held = .create(array_buffer.value, globalThis),
                 },
             };
             return;
@@ -400,7 +396,7 @@ pub const Stdio = union(enum) {
         return globalThis.throwInvalidArguments("stdio must be an array of 'inherit', 'ignore', or null", .{});
     }
 
-    pub fn extractBlob(stdio: *Stdio, globalThis: *JSC.JSGlobalObject, blob: JSC.WebCore.AnyBlob, i: i32) bun.JSError!void {
+    pub fn extractBlob(stdio: *Stdio, globalThis: *JSC.JSGlobalObject, blob: JSC.WebCore.Blob.Any, i: i32) bun.JSError!void {
         const fd = bun.FD.Stdio.fromInt(i).?.fd();
 
         if (blob.needsToReadFile()) {

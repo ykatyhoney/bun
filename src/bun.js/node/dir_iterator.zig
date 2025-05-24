@@ -11,14 +11,13 @@ const posix = std.posix;
 
 const Dir = std.fs.Dir;
 const JSC = bun.JSC;
-const PathString = JSC.PathString;
-const bun = @import("root").bun;
+const PathString = bun.PathString;
+const bun = @import("bun");
 
 const IteratorError = error{ AccessDenied, SystemResources } || posix.UnexpectedError;
 const mem = std.mem;
 const strings = bun.strings;
 const Maybe = JSC.Maybe;
-const File = std.fs.File;
 
 pub const IteratorResult = struct {
     name: PathString,
@@ -270,7 +269,7 @@ pub fn NewIterator(comptime use_windows_ospath: bool) type {
                             bun.sys.syslog("NtQueryDirectoryFile({}) = {s}", .{ bun.FD.fromStdDir(self.dir), @tagName(rc) });
                             return .{
                                 .err = .{
-                                    .errno = @intFromEnum(bun.C.SystemErrno.ENOTDIR),
+                                    .errno = @intFromEnum(bun.sys.SystemErrno.ENOTDIR),
                                     .syscall = .NtQueryDirectoryFile,
                                 },
                             };
@@ -296,7 +295,7 @@ pub fn NewIterator(comptime use_windows_ospath: bool) type {
 
                             return .{
                                 .err = .{
-                                    .errno = @intFromEnum(bun.C.SystemErrno.EUNKNOWN),
+                                    .errno = @intFromEnum(bun.sys.SystemErrno.EUNKNOWN),
                                     .syscall = .NtQueryDirectoryFile,
                                 },
                             };

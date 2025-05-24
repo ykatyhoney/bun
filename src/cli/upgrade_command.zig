@@ -1,4 +1,4 @@
-const bun = @import("root").bun;
+const bun = @import("bun");
 const string = bun.string;
 const Output = bun.Output;
 const Global = bun.Global;
@@ -7,23 +7,14 @@ const strings = bun.strings;
 const MutableString = bun.MutableString;
 const stringZ = bun.stringZ;
 const default_allocator = bun.default_allocator;
-const C = bun.C;
 const std = @import("std");
 const Progress = bun.Progress;
 
-const lex = bun.js_lexer;
 const logger = bun.logger;
 
-const options = @import("../options.zig");
-const js_parser = bun.js_parser;
 const js_ast = bun.JSAst;
 const linker = @import("../linker.zig");
 
-const allocators = @import("../allocators.zig");
-const sync = @import("../sync.zig");
-const Api = @import("../api/schema.zig").Api;
-const resolve_path = @import("../resolver/resolve_path.zig");
-const configureTransformOptionsForBun = @import("../bun.js/config.zig").configureTransformOptionsForBun;
 const Command = @import("../cli.zig").Command;
 
 const fs = @import("../fs.zig");
@@ -31,14 +22,9 @@ const URL = @import("../url.zig").URL;
 const HTTP = bun.http;
 const JSON = bun.JSON;
 const Archive = @import("../libarchive/libarchive.zig").Archive;
-const Zlib = @import("../zlib.zig");
-const JSPrinter = bun.js_printer;
 const DotEnv = @import("../env_loader.zig");
 const which = @import("../which.zig").which;
-const clap = bun.clap;
-const Lock = bun.Mutex;
 const Headers = bun.http.Headers;
-const CopyFile = @import("../copy_file.zig");
 
 pub var initialized_store = false;
 pub fn initializeStore() void {
@@ -120,6 +106,8 @@ pub const Version = struct {
 };
 
 pub const UpgradeCommand = struct {
+    pub const Bun__githubBaselineURL = Version.Bun__githubBaselineURL;
+
     const default_github_headers: string = "Acceptapplication/vnd.github.v3+json";
     var github_repository_url_buf: bun.PathBuffer = undefined;
     var current_executable_buf: bun.PathBuffer = undefined;
@@ -809,7 +797,7 @@ pub const UpgradeCommand = struct {
                     current_executable_buf[target_dir_.len] = 0;
                 }
 
-                C.moveFileZ(.fromStdDir(save_dir), exe, .fromStdDir(target_dir), target_filename) catch |err| {
+                bun.sys.moveFileZ(.fromStdDir(save_dir), exe, .fromStdDir(target_dir), target_filename) catch |err| {
                     defer save_dir_.deleteTree(version_name) catch {};
 
                     if (comptime Environment.isWindows) {

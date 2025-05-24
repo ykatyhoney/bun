@@ -247,10 +247,10 @@ pub const ShellLsTask = struct {
         const fd = switch (ShellSyscall.openat(this.cwd, this.path, bun.O.RDONLY | bun.O.DIRECTORY, 0)) {
             .err => |e| {
                 switch (e.getErrno()) {
-                    bun.C.E.NOENT => {
+                    .NOENT => {
                         this.err = this.errorWithPath(e, this.path);
                     },
-                    bun.C.E.NOTDIR => {
+                    .NOTDIR => {
                         this.result_kind = .file;
                         this.addEntry(this.path);
                     },
@@ -779,34 +779,21 @@ pub inline fn bltn(this: *Ls) *Builtin {
 
 const Ls = @This();
 const log = bun.Output.scoped(.ls, true);
-const bun = @import("root").bun;
+const bun = @import("bun");
 const shell = bun.shell;
 const interpreter = @import("../interpreter.zig");
 const Interpreter = interpreter.Interpreter;
 const Builtin = Interpreter.Builtin;
 const Result = Interpreter.Builtin.Result;
 const ParseError = interpreter.ParseError;
-const ParseFlagResult = interpreter.ParseFlagResult;
 const ExitCode = shell.ExitCode;
-const IOReader = shell.IOReader;
-const IOWriter = shell.IOWriter;
-const IO = shell.IO;
-const IOVector = shell.IOVector;
-const IOVectorSlice = shell.IOVectorSlice;
-const IOVectorSliceMut = shell.IOVectorSliceMut;
-const ReadChunkAction = interpreter.ReadChunkAction;
 const JSC = bun.JSC;
 const Maybe = bun.sys.Maybe;
 const std = @import("std");
-const FlagParser = interpreter.FlagParser;
 const Syscall = bun.sys;
 const ShellSyscall = interpreter.ShellSyscall;
-const unsupportedFlag = interpreter.unsupportedFlag;
 const Allocator = std.mem.Allocator;
 const DirIterator = bun.DirIterator;
-const builtin = @import("builtin");
-const OutputNeedsIOSafeGuard = interpreter.OutputNeedsIOSafeGuard;
 const OutputTask = interpreter.OutputTask;
 const OutputSrc = interpreter.OutputSrc;
 const CoroutineResult = interpreter.CoroutineResult;
-const assert = bun.assert;

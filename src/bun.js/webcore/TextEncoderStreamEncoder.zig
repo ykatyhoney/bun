@@ -105,11 +105,11 @@ fn encodeUTF16(this: *TextEncoderStreamEncoder, globalObject: *JSGlobalObject, i
 
     const Prepend = struct {
         bytes: [4]u8,
-        len: u3,
+        len: u8,
 
         pub const replacement: @This() = .{ .bytes = .{ 0xef, 0xbf, 0xbd, 0 }, .len = 3 };
 
-        pub fn fromSequence(seq: [4]u8, length: u3) @This() {
+        pub fn fromSequence(seq: [4]u8, length: u8) @This() {
             return .{ .bytes = seq, .len = length };
         }
     };
@@ -199,19 +199,11 @@ fn flushBody(this: *TextEncoderStreamEncoder, globalObject: *JSGlobalObject) JSV
 const TextEncoderStreamEncoder = @This();
 
 const std = @import("std");
-const bun = @import("root").bun;
+const bun = @import("bun");
 const JSC = bun.JSC;
 const Output = bun.Output;
-const MutableString = bun.MutableString;
 const strings = bun.strings;
-const string = bun.string;
-const FeatureFlags = bun.FeatureFlags;
-const ArrayBuffer = JSC.ArrayBuffer;
 const JSUint8Array = JSC.JSUint8Array;
-const ZigString = JSC.ZigString;
-const JSInternalPromise = JSC.JSInternalPromise;
-const JSPromise = JSC.JSPromise;
 const JSValue = JSC.JSValue;
 const JSGlobalObject = JSC.JSGlobalObject;
-const EncodingLabel = JSC.WebCore.EncodingLabel;
 const Environment = bun.Environment;

@@ -817,11 +817,11 @@ pub const ShellRmTask = struct {
                     .result => return Maybe(void).success,
                     .err => |e| {
                         switch (e.getErrno()) {
-                            bun.C.E.NOENT => {
+                            .NOENT => {
                                 if (this.opts.force) return this.verboseDeleted(dir_task, path);
                                 return .{ .err = this.errorWithPath(e, path) };
                             },
-                            bun.C.E.NOTDIR => {
+                            .NOTDIR => {
                                 delete_state.treat_as_dir = false;
                                 if (this.removeEntryFile(dir_task, dir_task.path, is_absolute, buf, &delete_state).asErr()) |err| {
                                     return .{ .err = this.errorWithPath(err, path) };
@@ -837,7 +837,7 @@ pub const ShellRmTask = struct {
         }
 
         if (!this.opts.recursive) {
-            return Maybe(void).initErr(Syscall.Error.fromCode(bun.C.E.ISDIR, .TODO).withPath(bun.default_allocator.dupeZ(u8, dir_task.path) catch bun.outOfMemory()));
+            return Maybe(void).initErr(Syscall.Error.fromCode(bun.sys.E.ISDIR, .TODO).withPath(bun.default_allocator.dupeZ(u8, dir_task.path) catch bun.outOfMemory()));
         }
 
         const flags = bun.O.DIRECTORY | bun.O.RDONLY;
@@ -845,11 +845,11 @@ pub const ShellRmTask = struct {
             .result => |fd| fd,
             .err => |e| {
                 switch (e.getErrno()) {
-                    bun.C.E.NOENT => {
+                    .NOENT => {
                         if (this.opts.force) return this.verboseDeleted(dir_task, path);
                         return .{ .err = this.errorWithPath(e, path) };
                     },
-                    bun.C.E.NOTDIR => {
+                    .NOTDIR => {
                         return this.removeEntryFile(dir_task, dir_task.path, is_absolute, buf, &DummyRemoveFile.dummy);
                     },
                     else => return .{ .err = this.errorWithPath(e, path) },
@@ -941,7 +941,7 @@ pub const ShellRmTask = struct {
             },
             .err => |e| {
                 switch (e.getErrno()) {
-                    bun.C.E.NOENT => {
+                    .NOENT => {
                         if (this.opts.force) {
                             switch (this.verboseDeleted(dir_task, path)) {
                                 .err => |e2| return .{ .err = e2 },
@@ -1046,14 +1046,14 @@ pub const ShellRmTask = struct {
                     },
                     .err => |e| {
                         switch (e.getErrno()) {
-                            bun.C.E.NOENT => {
+                            .NOENT => {
                                 if (this.opts.force) {
                                     _ = this.verboseDeleted(dir_task, dir_task.path);
                                     return .{ .result = true };
                                 }
                                 return .{ .err = this.errorWithPath(e, dir_task.path) };
                             },
-                            bun.C.E.NOTDIR => {
+                            .NOTDIR => {
                                 state.treat_as_dir = false;
                                 continue;
                             },
@@ -1096,17 +1096,17 @@ pub const ShellRmTask = struct {
             .err => |e| {
                 debug("unlinkatWithFlags({s}) = {s}", .{ path, @tagName(e.getErrno()) });
                 switch (e.getErrno()) {
-                    bun.C.E.NOENT => {
+                    bun.sys.E.NOENT => {
                         if (this.opts.force)
                             return this.verboseDeleted(parent_dir_task, path);
 
                         return .{ .err = this.errorWithPath(e, path) };
                     },
-                    bun.C.E.ISDIR => {
+                    bun.sys.E.ISDIR => {
                         return Handler.onIsDir(vtable, parent_dir_task, path, is_absolute, buf);
                     },
                     // This might happen if the file is actually a directory
-                    bun.C.E.PERM => {
+                    bun.sys.E.PERM => {
                         switch (builtin.os.tag) {
                             // non-Linux POSIX systems and Windows return EPERM when trying to delete a directory, so
                             // we need to handle that case specifically and translate the error
@@ -1121,13 +1121,13 @@ pub const ShellRmTask = struct {
                                         .err => |e2| {
                                             return switch (e2.getErrno()) {
                                                 // not empty, process directory as we would normally
-                                                bun.C.E.NOTEMPTY => {
+                                                .NOTEMPTY => {
                                                     // this.enqueueNoJoin(parent_dir_task, path, .dir);
                                                     // return Maybe(void).success;
                                                     return Handler.onDirNotEmpty(vtable, parent_dir_task, path, is_absolute, buf);
                                                 },
                                                 // actually a file, the error is a permissions error
-                                                bun.C.E.NOTDIR => .{ .err = this.errorWithPath(e, path) },
+                                                .NOTDIR => .{ .err = this.errorWithPath(e, path) },
                                                 else => .{ .err = this.errorWithPath(e2, path) },
                                             };
                                         },
@@ -1195,30 +1195,18 @@ inline fn fastMod(val: anytype, comptime rhs: comptime_int) @TypeOf(val) {
 
 // --
 const log = bun.Output.scoped(.Rm, true);
-const bun = @import("root").bun;
+const bun = @import("bun");
 const shell = bun.shell;
 const interpreter = @import("../interpreter.zig");
 const Interpreter = interpreter.Interpreter;
 const Builtin = Interpreter.Builtin;
-const Result = Interpreter.Builtin.Result;
-const ParseError = interpreter.ParseError;
-const ParseFlagResult = interpreter.ParseFlagResult;
 const ExitCode = shell.ExitCode;
-const IOReader = shell.IOReader;
-const IOWriter = shell.IOWriter;
-const IO = shell.IO;
-const IOVector = shell.IOVector;
-const IOVectorSlice = shell.IOVectorSlice;
-const IOVectorSliceMut = shell.IOVectorSliceMut;
 const Rm = @This();
-const ReadChunkAction = interpreter.ReadChunkAction;
 const JSC = bun.JSC;
 const Maybe = bun.sys.Maybe;
 const std = @import("std");
-const FlagParser = interpreter.FlagParser;
 
 const ShellSyscall = interpreter.ShellSyscall;
-const unsupportedFlag = interpreter.unsupportedFlag;
 const Syscall = bun.sys;
 const assert = bun.assert;
 const ResolvePath = bun.path;

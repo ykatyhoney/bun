@@ -1,5 +1,5 @@
 const std = @import("std");
-const bun = @import("root").bun;
+const bun = @import("bun");
 const uv = bun.windows.libuv;
 
 const log = bun.Output.scoped(.PipeSource, true);
@@ -48,7 +48,7 @@ pub const Source = union(enum) {
     }
     pub fn toStream(this: Source) *uv.uv_stream_t {
         return switch (this) {
-            .pipe => @ptrCast(this.pipe),
+            .pipe => this.pipe.asStream(),
             .tty => @ptrCast(this.tty),
             .sync_file, .file => unreachable,
         };
@@ -214,7 +214,7 @@ pub const Source = union(enum) {
             },
             else => .{
                 .err = .{
-                    .errno = @intFromEnum(bun.C.E.NOTSUP),
+                    .errno = @intFromEnum(bun.sys.E.NOTSUP),
                     .syscall = .uv_tty_set_mode,
                     .fd = this.getFd(),
                 },

@@ -3,7 +3,7 @@
 /// ** you must also increment the `expected_version` in RuntimeTranspilerCache.zig **
 /// ** IMPORTANT **
 pub const std = @import("std");
-const bun = @import("root").bun;
+const bun = @import("bun");
 pub const logger = bun.logger;
 pub const js_lexer = bun.js_lexer;
 pub const importRecord = @import("./import_record.zig");
@@ -18,13 +18,10 @@ pub const RuntimeNames = _runtime.Runtime.Names;
 pub const fs = @import("./fs.zig");
 const string = bun.string;
 const Output = bun.Output;
-const Global = bun.Global;
 const Environment = bun.Environment;
 const strings = bun.strings;
-const MutableString = bun.MutableString;
-const stringZ = bun.stringZ;
 const default_allocator = bun.default_allocator;
-const C = bun.C;
+
 const G = js_ast.G;
 const Define = @import("./defines.zig").Define;
 const DefineData = @import("./defines.zig").DefineData;
@@ -70,13 +67,11 @@ pub const Op = js_ast.Op;
 pub const Scope = js_ast.Scope;
 pub const locModuleScope = logger.Loc{ .start = -100 };
 const Ref = @import("./ast/base.zig").Ref;
-const RefHashCtx = @import("./ast/base.zig").RefHashCtx;
 
 pub const StringHashMap = bun.StringHashMap;
 pub const AutoHashMap = std.AutoHashMap;
 const StringHashMapUnmanaged = bun.StringHashMapUnmanaged;
 const ObjectPool = @import("./pool.zig").ObjectPool;
-const NodeFallbackModules = @import("./node_fallbacks.zig");
 
 const DeferredImportNamespace = struct {
     namespace: LocRef,
@@ -185,8 +180,6 @@ const arguments_str: string = "arguments";
 
 const ScopeOrderList = std.ArrayListUnmanaged(?ScopeOrder);
 
-const JSXFactoryName = "JSX";
-const JSXAutomaticName = "jsx_module";
 // kept as a static reference
 const exports_string_name: string = "exports";
 
@@ -499,7 +492,6 @@ pub fn locAfterOp(e: E.Binary) logger.Loc {
         return e.left.loc;
     }
 }
-const ExportsStringName = "exports";
 
 const TransposeState = struct {
     is_await_target: bool = false,
@@ -1679,9 +1671,7 @@ pub const SideEffects = enum(u1) {
             .e_arrow,
             .e_import_meta,
             .e_inlined_enum,
-            => {
-                return null;
-            },
+            => return null,
 
             .e_dot => |dot| {
                 if (dot.can_be_removed_if_unused) {
@@ -1755,7 +1745,7 @@ pub const SideEffects = enum(u1) {
                     if (call.args.len > 0) {
                         return Expr.joinAllWithCommaCallback(call.args.slice(), @TypeOf(p), p, comptime simplifyUnusedExpr, p.allocator);
                     } else {
-                        return Expr.empty;
+                        return null;
                     }
                 }
             },
@@ -2542,8 +2532,6 @@ const ExprIn = struct {
     property_access_for_method_call_maybe_should_replace_with_undefined: bool = false,
 };
 
-const Tup = std.meta.Tuple;
-
 // This function exists to tie all of these checks together in one place
 // This can sometimes show up on benchmarks as a small thing.
 fn isEvalOrArguments(name: string) bool {
@@ -2681,7 +2669,6 @@ const SymbolUseMap = js_ast.Part.SymbolUseMap;
 const SymbolPropertyUseMap = js_ast.Part.SymbolPropertyUseMap;
 const StringBoolMap = bun.StringHashMapUnmanaged(bool);
 const RefMap = std.HashMapUnmanaged(Ref, void, RefCtx, 80);
-const RefArrayMap = std.ArrayHashMapUnmanaged(Ref, void, @import("./ast/base.zig").RefHashCtx, false);
 
 const RefRefMap = std.HashMapUnmanaged(Ref, Ref, RefCtx, 80);
 const ImportRecord = importRecord.ImportRecord;
@@ -7450,10 +7437,11 @@ fn NewParser_(
                     .bin_rem => {
                         if (p.should_fold_typescript_constant_expressions) {
                             if (Expr.extractNumericValues(e_.left.data, e_.right.data)) |vals| {
+                                const fmod = @extern(*const fn (f64, f64) callconv(.C) f64, .{ .name = "fmod" });
                                 return p.newExpr(
                                     // Use libc fmod here to be consistent with what JavaScriptCore does
                                     // https://github.com/oven-sh/WebKit/blob/7a0b13626e5db69aa5a32d037431d381df5dfb61/Source/JavaScriptCore/runtime/MathCommon.cpp#L574-L597
-                                    E.Number{ .value = if (comptime Environment.isNative) bun.C.fmod(vals[0], vals[1]) else std.math.mod(f64, vals[0], vals[1]) catch 0 },
+                                    E.Number{ .value = if (comptime Environment.isNative) fmod(vals[0], vals[1]) else std.math.mod(f64, vals[0], vals[1]) catch 0 },
                                     v.loc,
                                 );
                             }
@@ -7462,7 +7450,7 @@ fn NewParser_(
                     .bin_pow => {
                         if (p.should_fold_typescript_constant_expressions) {
                             if (Expr.extractNumericValues(e_.left.data, e_.right.data)) |vals| {
-                                return p.newExpr(E.Number{ .value = std.math.pow(f64, vals[0], vals[1]) }, v.loc);
+                                return p.newExpr(E.Number{ .value = JSC.math.pow(vals[0], vals[1]) }, v.loc);
                             }
                         }
                     },
